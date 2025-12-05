@@ -1,0 +1,49 @@
+<div class="qa-box"
+     data-context-type="{{ ctx_type }}"
+     data-context-name="{{ ctx_name }}">
+  <h2>Ask a question about this {{ ctx_type }}</h2>
+  <textarea class="qa-input" placeholder="Ask anything about this {{ ctx_type }}…"></textarea>
+  <button class="qa-button">Ask</button>
+  <div class="qa-answer"></div>
+</div>
+
+<script>
+(function() {
+  const box = document.currentScript.previousElementSibling;
+  if (!box || !box.classList.contains('qa-box')) return;
+
+  const type = box.dataset.contextType;
+  const name = box.dataset.contextName;
+  const textarea = box.querySelector('.qa-input');
+  const button = box.querySelector('.qa-button');
+  const answerDiv = box.querySelector('.qa-answer');
+
+  const aggregates = window.QA_AGGREGATES || {};
+  const segments = window.QA_SEGMENTS || [];
+
+  button.addEventListener('click', async () => {
+    const question = textarea.value.trim();
+    if (!question) return;
+    answerDiv.textContent = "Thinking…";
+
+    const resp = await fetch("/api/qa", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        context_type: type,
+        context_name: name,
+        question: question,
+        aggregates: aggregates,
+        segments: segments
+      })
+    });
+    const data = await resp.json();
+    if (data.error) {
+      answerDiv.textContent = data.error;
+    } else {
+      answerDiv.textContent = data.answer;
+    }
+  });
+})();
+</script>
+

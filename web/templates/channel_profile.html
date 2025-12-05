@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="entity-header">
+  <div>
+    <h1>{{ channel['title'] }}</h1>
+    <p>{{ channel['description'] }}</p>
+    <div class="meta-row">
+      <span>Subscribers: {{ channel['subscriber_count'] }}</span>
+      <span>Views: {{ channel['view_count'] }}</span>
+      <span>Videos: {{ stats.video_count }}</span>
+    </div>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="card">
+    <h2>Channel Overview</h2>
+    <p>Average sentiment: {{ "%.1f"|format(stats.sentiment_avg) }} / 100</p>
+    <p>Distinct brands: {{ stats.brand_count }} |
+       Sponsors: {{ stats.sponsor_count }} |
+       Products: {{ stats.product_count }}</p>
+
+    <h3>Top Topics</h3>
+    <ul class="pill-list">
+      {% for t in stats.top_topics %}
+        <li>{{ t }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Brands & Sponsors</h2>
+
+    <h3>Brands</h3>
+    <ul class="pill-list">
+      {% for b in stats.top_brands %}
+        <li><a href="{{ url_for('brand_dashboard', brand_name=b) }}">{{ b }}</a></li>
+      {% endfor %}
+    </ul>
+
+    <h3>Sponsors</h3>
+    <ul class="pill-list">
+      {% for s in stats.top_sponsors %}
+        <li><a href="{{ url_for('sponsor_dashboard', sponsor_name=s) }}">{{ s }}</a></li>
+      {% endfor %}
+    </ul>
+
+    <h3>Products</h3>
+    <ul class="pill-list">
+      {% for p in stats.top_products %}
+        <li><a href="{{ url_for('product_dashboard', product_name=p) }}">{{ p }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Videos</h2>
+  <table class="simple-table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Upload date</th>
+        <th>Views</th>
+        <th>Sentiment</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for v in videos %}
+      <tr>
+        <td>{{ v['title'] }}</td>
+        <td>{{ v['upload_date'] }}</td>
+        <td>{{ v['view_count'] }}</td>
+        <td>{{ v['overall_sentiment'] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+

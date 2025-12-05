@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+
+    {% if brand %}
+        <h2>{{ brand.name }}</h2>
+        <p class="text-muted">Brand Profile</p>
+
+        <hr>
+
+        <h4>Videos Mentioning {{ brand.name }}</h4>
+        {% if videos %}
+            <ul class="list-group">
+                {% for v in videos %}
+                    <li class="list-group-item">
+                        <a href="{{ url_for('video_profile', video_id=v.video_id) }}">
+                            {{ v.title }}
+                        </a>
+                        <br>
+                        <small>Channel: {{ v.channel_name }} | Date: {{ v.upload_date }}</small>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No videos found for this brand yet.</p>
+        {% endif %}
+
+        <hr>
+
+        <h4>Related Products</h4>
+        {% if products %}
+            <ul class="list-group">
+                {% for p in products %}
+                    <li class="list-group-item">
+                        {{ p.name }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No products detected for this brand.</p>
+        {% endif %}
+
+    {% else %}
+        <h3>Brand Not Found</h3>
+        <p>This brand does not exist in the database.</p>
+    {% endif %}
+
+</div>
+{% endblock %}
+

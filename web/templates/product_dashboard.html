@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="entity-header">
+  <div>
+    <h1>Product: {{ product['name'] }}</h1>
+    <p>Brand: {{ product['brand_name'] or 'Unknown' }}</p>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="card">
+    <h2>Mentions & Sentiment Over Time</h2>
+    {% if monthly_data %}
+      <canvas id="productMentionsChart"></canvas>
+      <canvas id="productSentimentChart" style="margin-top:16px;"></canvas>
+    {% else %}
+      <p>No mentions yet for this product.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Top Channels</h2>
+    <ul>
+      {% for ch, count in top_channels %}
+        <li>{{ ch }} <span class="badge">{{ count }}</span></li>
+      {% endfor %}
+    </ul>
+
+    <h2>Other Brands Mentioned</h2>
+    <ul>
+      {% for b, count in top_co_brands %}
+        <li>{{ b }} <span class="badge">{{ count }}</span></li>
+      {% endfor %}
+    </ul>
+
+    <h2>Other Products Mentioned</h2>
+    <ul>
+      {% for p, count in top_co_products %}
+        <li>{{ p }} <span class="badge">{{ count }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{% set ctx_type = "product" %}
+{% set ctx_name = product['name'] %}
+{% include "components/qa_box.html" %}
+
+<script>
+  window.QA_AGGREGATES = {{ aggregates|tojson }};
+  window.QA_SEGMENTS = {{ segments_for_qa|tojson }};
+
+  const monthlyData = {{ monthly_data|tojson }};
+  const labels = monthlyData.map(d => d.month);
+  const mentions = monthlyData.map(d => d.mentions);
+  const sentiments = monthlyData.map(d => d.avg_sentiment);
+
+  if (monthlyData.length) {
+    const ctx1 = document.getElementById('productMentionsChart');
+    new Chart(ctx1, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Mentions', data: mentions, tension: 0.2 }] },
+      options: { responsive: true }
+    });
+
+    const ctx2 = document.getElementById('productSentimentChart');
+    new Chart(ctx2, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Avg Sentiment', data: sentiments, tension: 0.2 }] },
+      options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+    });
+  }
+</script>
+{% endblock %}
+

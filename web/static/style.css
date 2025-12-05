@@ -1,0 +1,189 @@
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f5f6fa;
+  color: #222;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #20263a;
+  color: #fff;
+  padding: 12px 24px;
+}
+
+.logo {
+  font-weight: 600;
+  font-size: 20px;
+  cursor: pointer;
+}
+.logo span {
+  color: #5ad1ff;
+}
+
+.search-bar {
+  display: flex;
+  position: relative;
+  width: 50%;
+}
+.search-bar input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 4px 0 0 4px;
+  border: none;
+}
+.search-bar button {
+  border: none;
+  padding: 8px 14px;
+  background: #5ad1ff;
+  color: #111;
+  font-weight: 600;
+  border-radius: 0 4px 4px 0;
+  cursor: pointer;
+}
+
+.suggestions {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  right: 0;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border-radius: 4px;
+  display: none;
+  z-index: 10;
+}
+.suggestion-item {
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.suggestion-item:hover {
+  background: #f0f0f0;
+}
+
+.app-main {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.hero {
+  margin-bottom: 24px;
+}
+.hero h1 {
+  margin: 0 0 8px;
+}
+.hero p {
+  margin: 0;
+  color: #555;
+}
+
+.grid-3 {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.grid-2 {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+.entity-header {
+  margin-bottom: 18px;
+}
+
+.meta-row span {
+  margin-right: 16px;
+  font-size: 14px;
+  color: #555;
+}
+
+.pill-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pill-list li {
+  background: #e6efff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.pill-list li a {
+  text-decoration: none;
+  color: #111;
+}
+.pill-list li span {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #555;
+}
+
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.simple-table th,
+.simple-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #eee;
+}
+.simple-table th {
+  text-align: left;
+  color: #666;
+}
+
+.search-results-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.badge {
+  background: #20263a;
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.qa-box {
+  margin-top: 24px;
+  background: #fff;
+  padding: 16px 18px;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+.qa-input {
+  width: 100%;
+  min-height: 60px;
+  margin-bottom: 8px;
+}
+.qa-button {
+  padding: 6px 12px;
+  border: none;
+  background: #20263a;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.qa-answer {
+  margin-top: 12px;
+  font-size: 14px;
+  color: #222;
+}
+

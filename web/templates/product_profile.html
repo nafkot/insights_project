@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+    <h1>{{ product.name }}</h1>
+    <p class="subtitle">Product insights & creator discussions</p>
+</div>
+
+<section class="profile-section">
+    <h2>Brand</h2>
+    {% if product.brand_name %}
+        <p>Part of: 
+            <a href="{{ url_for('brand_profile', brand_id=product.brand_id) }}">
+                {{ product.brand_name }}
+            </a>
+        </p>
+    {% else %}
+        <p>No parent brand detected.</p>
+    {% endif %}
+</section>
+
+<section class="profile-section">
+    <h2>Mentions Overview</h2>
+
+    <div class="stats-grid">
+        <div class="stat-box">
+            <label>Total Mentions</label>
+            <div class="value">{{ metrics.total_mentions }}</div>
+        </div>
+        <div class="stat-box">
+            <label>Channels Mentioning</label>
+            <div class="value">{{ metrics.unique_channels }}</div>
+        </div>
+        <div class="stat-box">
+            <label>Avg Sentiment</label>
+            <div class="value">{{ metrics.avg_sentiment }}</div>
+        </div>
+    </div>
+</section>
+
+<section class="profile-section">
+    <h2>Most Relevant Videos</h2>
+    {% if videos %}
+        <ul class="video-list">
+            {% for v in videos %}
+                <li>
+                    <a href="{{ url_for('video_profile', video_id=v.video_id) }}">
+                        {{ v.title }}
+                    </a>
+                    <span class="small">{{ v.channel_name }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No videos found for this product.</p>
+    {% endif %}
+</section>
+
+{% endblock %}
+

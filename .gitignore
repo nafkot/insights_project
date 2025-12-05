@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+venv_detection/
+.env
+
+# OS files
+.DS_Store
+
+# SQLite DB
+youtube_insights.db
+
+# Transcripts & audio caches
+audio_cache/
+transcript_cache/
+
+# Service accounts (never upload!)
+account.json
+
