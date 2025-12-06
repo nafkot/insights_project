@@ -38,10 +38,19 @@ def try_rapidapi_transcript(video_id: str) -> List[Dict[str, Any]] | None:
     _ensure_dirs()
     cache_file = os.path.join(TRANSCRIPT_CACHE_DIR, f"{video_id}_rapidapi.json")
 
+    # --- FIX: Handle Corrupt Cache ---
     if os.path.exists(cache_file):
-        print(f"[{video_id}] Using cached RapidAPI transcript")
-        with open(cache_file, "r") as f:
-            return json.load(f)
+        try:
+            with open(cache_file, "r") as f:
+                data = json.load(f)
+            print(f"[{video_id}] Using cached RapidAPI transcript")
+            return data
+        except json.JSONDecodeError:
+            print(f"[{video_id}] Corrupt cache file found. Deleting and re-fetching...")
+            try:
+                os.remove(cache_file)
+            except OSError:
+                pass
 
     print(f"[{video_id}] Fetching transcript from RapidAPI...")
 
@@ -53,45 +62,22 @@ def try_rapidapi_transcript(video_id: str) -> List[Dict[str, Any]] | None:
         "x-rapidapi-host": RAPIDAPI_HOST,
     }
 
-    # === DEBUG LOG BLOCK ===
-    print("\n================ RAPIDAPI DEBUG ================")
-    print("VIDEO ID:", video_id)
-    print("RapidAPI Host:", RAPIDAPI_HOST)
-    print("RapidAPI Key (first 8 chars):", RAPIDAPI_KEY[:8], "(full length:", len(RAPIDAPI_KEY), ")")
-    print("Request URL:", url)
-    print("Request Params:", params)
-    print("Request Headers:", headers)
-    print("================================================\n")
-    # ==================================================
-
     try:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
 
-        print(f"[{video_id}] RapidAPI Response Status:", resp.status_code)
-
-        # Debug the raw server response
-        try:
-            print(f"[{video_id}] RapidAPI Raw Response Snippet:", resp.text[:500])
-        except:
-            print(f"[{video_id}] (Unable to print response text)")
-
-        # Expect 200 for success
         if resp.status_code == 200:
             try:
                 data = resp.json()
             except Exception as json_err:
-                print(f"[{video_id}] JSON parsing failed:", json_err)
+                print(f"[{video_id}] RapidAPI response JSON parsing failed: {json_err}")
                 return None
 
-            # RapidAPI provider returns a LIST of tracks
             if not isinstance(data, list):
-                print(f"[{video_id}] Unexpected JSON shape (expected list):", type(data))
-                print("Full data:", data)
+                # Sometimes API returns error object
                 return None
 
             segments = []
 
-            # Correct parsing for provider returning: [{"subtitle":[...]}]
             for track in data:
                 subtitle_list = track.get("subtitle", [])
                 for item in subtitle_list:
@@ -113,27 +99,26 @@ def try_rapidapi_transcript(video_id: str) -> List[Dict[str, Any]] | None:
                         })
 
             if segments:
+                # Atomically write (or just write)
                 with open(cache_file, "w") as f:
                     json.dump(segments, f, indent=2)
                 print(f"[{video_id}] RapidAPI transcript extracted ({len(segments)} segments)")
                 return segments
 
-            print(f"[{video_id}] RapidAPI returned 200 but no segments could be extracted.")
-            return None        
+            return None
 
         else:
             print(f"[{video_id}] RapidAPI returned status {resp.status_code}")
             return None
 
     except Exception as e:
-        print(f"[{video_id}] RapidAPI transcript error:", e)
+        print(f"[{video_id}] RapidAPI transcript error: {e}")
         return None
 
 
 def download_audio_with_ytdlp(video_id: str, use_proxy: bool, use_cookies: bool) -> str | None:
     """
     Download audio using yt-dlp with optional proxy & cookies.
-    Returns the path to the downloaded audio file, or None if it fails.
     """
     _ensure_dirs()
     output_tmpl = os.path.join(AUDIO_OUTPUT_DIR, f"{video_id}.%(ext)s")
@@ -157,10 +142,9 @@ def download_audio_with_ytdlp(video_id: str, use_proxy: bool, use_cookies: bool)
         with yt_dlp.YoutubeDL(ytdlp_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        print(f"[{video_id}] yt-dlp download error (proxy={use_proxy}, cookies={use_cookies}): {e}")
+        print(f"[{video_id}] yt-dlp download error: {e}")
         return None
 
-    # Find best match file
     for ext in ("webm", "m4a", "mp3", "wav"):
         candidate = os.path.join(AUDIO_OUTPUT_DIR, f"{video_id}.{ext}")
         if os.path.exists(candidate):
@@ -172,12 +156,8 @@ def download_audio_with_ytdlp(video_id: str, use_proxy: bool, use_cookies: bool)
 def transcribe_audio_local(audio_path: str) -> List[Dict[str, Any]] | None:
     """
     Transcribe using Whisper (local or external service).
-    For now, this function assumes a remote API, but you can replace it
-    with your own local whisper call.
-    Returns segments [{start, end, text}, ...] or None.
     """
     if WHISPER_API_URL and WHISPER_API_KEY:
-        # Example: remote whisper API (you will adapt to your own endpoint format)
         try:
             with open(audio_path, "rb") as f:
                 files = {"file": f}
@@ -186,7 +166,6 @@ def transcribe_audio_local(audio_path: str) -> List[Dict[str, Any]] | None:
 
             if resp.status_code == 200:
                 data = resp.json()
-                # Expect data["segments"] in standard openai-whisper-like shape.
                 segments = []
                 for seg in data.get("segments", []):
                     segments.append({
@@ -195,23 +174,16 @@ def transcribe_audio_local(audio_path: str) -> List[Dict[str, Any]] | None:
                         "text": seg.get("text", "").strip(),
                     })
                 return segments
-
-            print(f"[ASR] Whisper API failed with status {resp.status_code}")
             return None
         except Exception as e:
             print(f"[ASR] Whisper API error: {e}")
             return None
     else:
-        # Placeholder: local whisper CLI example
-        # Replace this with your own local pipeline if you already have one.
-        print(f"[ASR] No WHISPER_API configured; you must implement local transcription for {audio_path}.")
+        print(f"[ASR] No WHISPER_API configured.")
         return None
 
 
 def build_transcript_segments_from_audio(video_id: str, use_proxy: bool, use_cookies: bool) -> List[Dict[str, Any]] | None:
-    """
-    Download audio and run transcription, returning segments or None.
-    """
     audio_path = download_audio_with_ytdlp(video_id, use_proxy=use_proxy, use_cookies=use_cookies)
     if not audio_path:
         return None
@@ -222,33 +194,22 @@ def build_transcript_segments_from_audio(video_id: str, use_proxy: bool, use_coo
 
 
 def get_transcript_segments(video_id: str) -> List[Dict[str, Any]] | None:
-    """
-    Top-level pipeline for transcript ingestion with 3 fallbacks:
-
-    1) RapidAPI
-    2) yt-dlp + proxy + ASR
-    3) yt-dlp + cookies + ASR
-    """
-    # OPTION 1: RapidAPI
+    # 1. RapidAPI
     segments = try_rapidapi_transcript(video_id)
     if segments:
-        print(f"[{video_id}] Using RapidAPI transcript ({len(segments)} segments).")
         return segments
 
-    # OPTION 2: yt-dlp with proxy
+    # 2. yt-dlp + proxy
     print(f"[{video_id}] RapidAPI failed, trying yt-dlp with proxy...")
     segments = build_transcript_segments_from_audio(video_id, use_proxy=True, use_cookies=False)
     if segments:
-        print(f"[{video_id}] Using proxy-download transcript ({len(segments)} segments).")
         return segments
 
-    # OPTION 3: yt-dlp with cookies
+    # 3. yt-dlp + cookies
     print(f"[{video_id}] Proxy download failed, trying yt-dlp with cookies...")
     segments = build_transcript_segments_from_audio(video_id, use_proxy=False, use_cookies=True)
     if segments:
-        print(f"[{video_id}] Using cookies-download transcript ({len(segments)} segments).")
         return segments
 
     print(f"[{video_id}] All transcript methods failed.")
     return None
-

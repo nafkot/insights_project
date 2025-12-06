@@ -3,10 +3,10 @@
 import sqlite3
 import hashlib
 import json
+import re
 from typing import List, Dict, Tuple, Optional
 
 from openai import OpenAI
-
 from config import DB_PATH, OPENAI_API_KEY, OPENAI_MODEL
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -61,10 +61,6 @@ def ensure_extraction_cache_table(conn: sqlite3.Connection) -> None:
 
 
 def compute_transcript_hash(segments: List[Dict]) -> str:
-    """
-    Option A: hash over start:end:text lines.
-    This will be stable as long as segments don't change.
-    """
     lines = []
     for seg in segments or []:
         start = seg.get("start", 0)
@@ -78,9 +74,6 @@ def compute_transcript_hash(segments: List[Dict]) -> str:
 def get_cached_extraction(
     conn: sqlite3.Connection, video_id: str, transcript_hash: str
 ) -> Optional[Tuple[List[str], List[Dict], List[str]]]:
-    """
-    If we have a cache row AND the transcript hash matches, return cached entities.
-    """
     c = conn.cursor()
     c.execute(
         """
@@ -96,7 +89,6 @@ def get_cached_extraction(
 
     cached_hash, brands_json, products_json, sponsors_json = row
     if cached_hash != transcript_hash:
-        # Transcript changed – ignore cache
         return None
 
     try:
@@ -170,37 +162,45 @@ Return ONLY valid JSON with this schema:
 }}
 """
 
-    resp = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        temperature=0,
-        top_p=1,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT.strip()},
-            {"role": "user", "content": user_prompt.strip()},
-        ],
-    )
-
-    # openai>=1.0: parsed JSON is available
     try:
-        data = resp.choices[0].message.parsed  # type: ignore[attr-defined]
-    except AttributeError:
-        # Fallback: parse content manually if 'parsed' is not available
-        content = resp.choices[0].message.content
-        data = json.loads(content)
+        resp = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            temperature=0,
+            top_p=1,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT.strip()},
+                {"role": "user", "content": user_prompt.strip()},
+            ],
+        )
+
+        # Robust Parsing Logic
+        raw_content = resp.choices[0].message.content
+
+        # 1. Try direct parsing
+        try:
+            data = json.loads(raw_content)
+        except json.JSONDecodeError:
+            # 2. Try stripping markdown code blocks
+            clean_content = raw_content.strip()
+            if clean_content.startswith("```json"):
+                clean_content = clean_content[7:]
+            if clean_content.endswith("```"):
+                clean_content = clean_content[:-3]
+            data = json.loads(clean_content.strip())
+
+    except Exception as e:
+        print(f"[Extraction] LLM Error: {e}")
+        return {"brands": [], "products": [], "sponsors": []}
 
     # Normalise keys
     brands = data.get("brands") or []
     products = data.get("products") or []
     sponsors = data.get("sponsors") or []
 
-    # Basic type safety
-    if not isinstance(brands, list):
-        brands = []
-    if not isinstance(products, list):
-        products = []
-    if not isinstance(sponsors, list):
-        sponsors = []
+    if not isinstance(brands, list): brands = []
+    if not isinstance(products, list): products = []
+    if not isinstance(sponsors, list): sponsors = []
 
     return {
         "brands": brands,
@@ -215,38 +215,31 @@ def _normalise_and_dedupe(
     # Normalise + dedupe brands
     brand_set = set()
     for b in brands:
-        if not b:
-            continue
+        if not b: continue
         b_norm = b.strip()
-        if b_norm:
-            brand_set.add(b_norm)
+        if b_norm: brand_set.add(b_norm)
     brands_out = sorted(brand_set)
 
     # Normalise + dedupe sponsors
     sponsor_set = set()
     for s in sponsors:
-        if not s:
-            continue
+        if not s: continue
         s_norm = s.strip()
-        if s_norm:
-            sponsor_set.add(s_norm)
+        if s_norm: sponsor_set.add(s_norm)
     sponsors_out = sorted(sponsor_set)
 
     # Normalise + dedupe products
     product_set = set()
     products_out = []
     for p in products:
-        if not isinstance(p, dict):
-            continue
+        if not isinstance(p, dict): continue
         brand = p.get("brand")
         product = p.get("product")
-        if not product:
-            continue
+        if not product: continue
         brand_norm = brand.strip() if isinstance(brand, str) else None
         product_norm = product.strip()
         key = (brand_norm, product_norm)
-        if key in product_set:
-            continue
+        if key in product_set: continue
         product_set.add(key)
         products_out.append({"brand": brand_norm, "product": product_norm})
 
@@ -258,11 +251,6 @@ def extract_entities_for_video(
 ) -> Tuple[List[str], List[Dict], List[str]]:
     """
     Main entry point used by ingest_video.py
-
-    - Computes a stable hash of the transcript segments.
-    - Checks cache; if hash matches, returns cached entities.
-    - Otherwise, calls LLM once over the full text, normalises + dedupes,
-      saves cache, and returns.
     """
     # Ensure segments have stable order
     segments = sorted(segments or [], key=lambda s: s.get("start", 0.0))
@@ -305,4 +293,3 @@ def extract_entities_for_video(
         return brands, products, sponsors
     finally:
         conn.close()
-
