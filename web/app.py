@@ -262,24 +262,37 @@ def search():
         return redirect(url_for("home"))
 
     conn = get_db()
-    videos = []
 
-    rows = conn.execute(
-        "SELECT video_id, title, channel_name, thumbnail_url FROM videos WHERE title LIKE ? ORDER BY upload_date DESC LIMIT 30",
-        (f"%{query}%",)
+    # 1. Search Entities (Channels, Brands, Products)
+    # We use LIKE %query% to find matches
+    q_like = f"%{query}%"
+
+    matched_channels = conn.execute("SELECT * FROM channels WHERE title LIKE ? LIMIT 5", (q_like,)).fetchall()
+    matched_brands = conn.execute("SELECT * FROM brands WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall()
+    matched_products = conn.execute("SELECT * FROM products WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall()
+
+    # 2. Search Videos (Title match)
+    video_rows = conn.execute(
+        "SELECT video_id, title, channel_name, thumbnail_url, upload_date, overall_summary FROM videos WHERE title LIKE ? ORDER BY upload_date DESC LIMIT 20",
+        (q_like,)
     ).fetchall()
 
-    for row in rows:
-        videos.append({
-            "video_id": row["video_id"],
-            "title": row["title"],
-            "channel_name": row["channel_name"],
-            "thumbnail_url": row["thumbnail_url"]
-        })
+    videos = []
+    for row in video_rows:
+        videos.append(dict(row))
 
+    # 3. Get AI Insight (Summary of the search results)
     ai_answer = answer_user_query(query)
 
-    return render_template("search.html", query=query, videos=videos, ai_answer=ai_answer)
+    return render_template(
+        "search.html",
+        query=query,
+        channels=matched_channels,
+        brands=matched_brands,
+        products=matched_products,
+        videos=videos,
+        ai_answer=ai_answer
+    )
 
 
 @app.route("/channel/<channel_id>")

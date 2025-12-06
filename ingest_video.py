@@ -9,12 +9,16 @@ from ingestion.extraction import extract_entities_for_video
 from config import DB_PATH
 from llm_ingest import analyze_transcript
 from ingestion.transcript_pipeline import get_transcript_segments
-# Added get_channel_details to imports
 from ingestion.youtube_client import get_authenticated_service, get_video_metadata, get_channel_details
 
 
+def get_db_connection():
+    # Set a high timeout (30s) to handle concurrent writes from multiple threads
+    return sqlite3.connect(DB_PATH, timeout=30.0)
+
+
 def video_already_exists(video_id: str) -> bool:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     try:
         c = conn.cursor()
         c.execute("SELECT 1 FROM videos WHERE video_id = ? LIMIT 1", (video_id,))
@@ -121,16 +125,11 @@ def _segments_to_text(segments) -> str:
 
 
 def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
-    """
-    video_meta: from YouTube API (get_video_metadata)
-    transcript_segments: list of {start, end, text}
-    """
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     c = conn.cursor()
 
     try:
         # --- NEW BLOCK: Upsert Channel Data ---
-        # Fetch detailed channel stats (subscribers, avatar, etc.)
         try:
             yt = get_authenticated_service()
             ch_data = get_channel_details(yt, video_meta["channel_id"])
@@ -159,7 +158,6 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     ch_data["thumbnail_url"],
                     "YouTube"
                 ))
-                # CRITICAL FIX: Commit immediately to release the lock
                 conn.commit()
         except Exception as e:
             print(f"[WARN] Could not update channel details: {e}")
@@ -173,15 +171,12 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
             text=text,
         )
 
-        # Deterministic brand/product/sponsor extraction with caching
-        # This function opens its OWN connection, so the previous transaction must be committed.
         brands, products, sponsors = extract_entities_for_video(
             video_meta["id"],
             transcript_segments or [],
         )
 
         topics = analysis.get("topics", []) or []
-
         topics_str = ",".join(topics) if isinstance(topics, list) else (topics or "")
         brands_json = json.dumps(brands)
         sponsors_json = json.dumps(sponsors)
@@ -273,20 +268,16 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     (sponsor_id, video_meta["id"], channel_id, 1, score, upload_date),
                 )
 
-        for p in products:
-            # p SHOULD be a dict from deterministic extractor: {"brand": "...", "product": "..."}
-            if not isinstance(p, dict):
-                continue  # skip malformed entries
+        # --- 5) PRODUCTS & CACHE INVALIDATION ---
+        for p_dict in products:
+            if not isinstance(p_dict, dict): continue
 
-            product_name = p.get("product")
-            if not product_name:
-                continue  # skip empty names
+            product_name = p_dict.get("product")
+            if not product_name: continue
 
-            # Prefer extractor's brand → otherwise use main_brand_name for this video
-            brand_for_product = p.get("brand") or main_brand_name
-
-            # Now pass ONLY the product name string into upsert_product()
+            brand_for_product = p_dict.get("brand") or main_brand_name
             product_id = upsert_product(conn, product_name, brand_name=brand_for_product)
+
             if product_id:
                 c.execute(
                     """
@@ -298,50 +289,18 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     (product_id, brand_id, video_meta["id"], channel_id, 1, score, upload_date),
                 )
 
-        # --- 5) CACHE INVALIDATION ---
-        # If we just added new mentions for products, their cached briefs are now stale.
-        # We delete them so they regenerate on the next page view.
-        if products:
-            # Get list of product IDs mentioned in this video
-            # (We need to query the IDs we just inserted/found)
-            for p in products:
-                # We need to resolve the ID again or track it during the loop above.
-                # A simpler way: The upsert_product function returns the ID.
-                # Let's assume you track the IDs in a list `product_ids_found` 
-                # inside the product loop above.
-                pass 
-            
-            # Since we didn't track IDs in a list in the previous block, 
-            # let's just do a quick cleanup based on the 'products' list of names.
-            # This is slightly inefficient but safe.
-            for p_dict in products:
-                if isinstance(p_dict, dict) and p_dict.get("product"):
-                    p_name = p_dict.get("product")
-                    # Find ID
-                    row = c.execute("SELECT id FROM products WHERE lower(name)=?", (normalize_name(p_name),)).fetchone()
-                    if row:
-                        pid = row[0]
-                        cache_key = f"product:{pid}:brief"
-                        c.execute("DELETE FROM cached_dashboards WHERE key=?", (cache_key,))
-                        print(f"[CACHE] Invalidated brief for product {pid} ({p_name})")
+                # --- CACHE INVALIDATION ---
+                cache_key = f"product:{product_id}:intel_v2"
+                c.execute("DELETE FROM cached_dashboards WHERE key=?", (cache_key,))
+                print(f"[CACHE] Invalidated brief for product {product_id} ({product_name})")
 
         conn.commit()
-        print(
-            f"[OK] Saved video {video_meta['id']} with "
-            f"{len(brands)} brands, {len(sponsors)} sponsors, {len(products)} products."
-        )
+        print(f"[OK] Saved video {video_meta['id']} with {len(brands)} brands.")
     finally:
         conn.close()
 
 
 def ingest_single_video(video_id: str) -> None:
-    """
-    Convenience function: fully ingest a single video_id using:
-    - YouTube API for metadata
-    - Transcript pipeline (RapidAPI → proxy → cookies)
-    - LLM ingestion + DB storage
-    """
-    # Skip if already ingested
     if video_already_exists(video_id):
         print(f"[SKIP] Video {video_id} already ingested – skipping.")
         return
@@ -361,10 +320,7 @@ def ingest_single_video(video_id: str) -> None:
 
 
 if __name__ == "__main__":
-    # Simple CLI for testing:
-    # python ingest_video.py VIDEO_ID
     import sys
-
     if len(sys.argv) < 2:
         print("Usage: python ingest_video.py <VIDEO_ID>")
         raise SystemExit(1)
