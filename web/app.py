@@ -234,8 +234,6 @@ def brand_profile(brand_id):
     return render_template("brand_profile.html", brand=brand, videos=mentions, products=products)
 
 
-# ... (keep existing imports) ...
-
 # --- Helper: Generate Marketing Brief ---
 def generate_marketing_brief(product_name, context_segments):
     """
@@ -293,10 +291,6 @@ def generate_marketing_brief(product_name, context_segments):
         print(f"Error generating brief: {e}")
         return None
 
-
-# --- Route: Product Profile ---
-# ... (keep existing imports) ...
-from datetime import datetime
 
 # --- Helper: Marketing Brief with Caching ---
 def get_marketing_brief(conn, product_id, product_name, context_segments, last_mention_date):
@@ -387,10 +381,100 @@ def get_marketing_brief(conn, product_id, product_name, context_segments, last_m
 
 
 @app.route("/product/<int:product_id>")
+# ... (imports) ...
+
+# --- Helper: Batch Intelligence Generation ---
+def get_product_intelligence(conn, product_id, product_name, context_data, last_mention_date):
+    """
+    Generates specific summaries for EACH video + a global brief in one go.
+    context_data: List of dicts { 'video_id': '...', 'date': '...', 'text': '...' }
+    """
+    if not context_data:
+        return {"brief": None, "video_summaries": {}}
+
+    cache_key = f"product:{product_id}:intel_v2" # v2 schema
+
+    # 1. Check Cache
+    cached = conn.execute(
+        "SELECT payload, updated_at FROM cached_dashboards WHERE key = ?",
+        (cache_key,)
+    ).fetchone()
+
+    if cached:
+        # Check if cache is fresh enough (updated after the last video was uploaded)
+        if last_mention_date and cached['updated_at'] >= last_mention_date:
+            try:
+                return json.loads(cached['payload'])
+            except:
+                pass # JSON error, regenerate
+
+    # 2. Prepare Data for LLM (Batching)
+    # We take the top 15 most recent videos for detailed summarization to fit context window
+    recent_batch = context_data[:15]
+
+    prompt_items = ""
+    for item in recent_batch:
+        prompt_items += f"VIDEO_ID: {item['video_id']}\nTRANSCRIPT: {item['text']}\n---\n"
+
+    prompt = f"""
+    You are a Marketing Intelligence AI.
+    Analyze mentions of the product "{product_name}".
+
+    INPUT DATA:
+    {prompt_items}
+
+    TASK:
+    Return a strict JSON object with two keys:
+    1. "brief": An HTML executive summary of trends, sentiment, and key themes across all videos.
+    2. "video_summaries": A dictionary where Keys are VIDEO_IDs and Values are a 1-sentence summary of EXACTLY what that specific creator said about the product.
+       - Example Value: "Tati mentioned she uses this daily for her morning routine and loves the texture."
+       - Do NOT summarize the whole video. Focus ONLY on the product mention.
+
+    JSON SCHEMA:
+    {{
+      "brief": "<div>...html content...</div>",
+      "video_summaries": {{
+         "video_id_1": "Summary of product usage...",
+         "video_id_2": "Summary of product usage..."
+      }}
+    }}
+    """
+
+    print(f"[LLM] Generating batch intelligence for {product_name}...")
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a JSON-only API. Return valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+
+        # Parse JSON
+        result = json.loads(response.choices[0].message.content)
+
+        # 3. Save to Cache
+        conn.execute("""
+            INSERT INTO cached_dashboards (key, type, payload, updated_at)
+            VALUES (?, 'intel', ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
+        """, (cache_key, json.dumps(result)))
+        conn.commit()
+
+        return result
+
+    except Exception as e:
+        print(f"Error generating intelligence: {e}")
+        return {"brief": None, "video_summaries": {}}
+
+
+@app.route("/product/<int:product_id>")
 def product_profile(product_id):
     conn = get_db()
 
-    # 1. Product & Brand Info
+    # 1. Product Info
     product = conn.execute("""
         SELECT p.id, p.name, b.id AS brand_id, b.name AS brand_name
         FROM products p
@@ -420,10 +504,10 @@ def product_profile(product_id):
         ORDER BY cnt DESC LIMIT 1
     """, (product_id,)).fetchone()
 
-    # 4. Fetch Videos & Segments
+    # 4. Fetch Video Data
     videos_rows = conn.execute("""
         SELECT
-            v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url, v.overall_summary,
+            v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
             pm.mention_count, pm.sentiment_score
         FROM product_mentions pm
         JOIN videos v ON pm.video_id = v.video_id
@@ -432,39 +516,52 @@ def product_profile(product_id):
     """, (product_id,)).fetchall()
 
     videos = []
-    llm_context = []
+    llm_input_data = []
 
+    # Prepare data for LLM
     for row in videos_rows:
         vid = dict(row)
-        # Find specific context
+
+        # Grab raw transcript snippet
         matches = conn.execute("""
             SELECT text FROM video_segments
-            WHERE video_id = ? AND lower(text) LIKE ? LIMIT 2
+            WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3
         """, (vid['video_id'], f"%{product['name'].lower()}%")).fetchall()
 
-        snippet = " ... ".join([m['text'] for m in matches]) if matches else "Mentioned in video."
-        vid['snippet'] = snippet
+        raw_snippet = " ... ".join([m['text'] for m in matches]) if matches else "Mentioned in video."
+        vid['raw_snippet'] = raw_snippet
 
-        llm_context.append({
+        llm_input_data.append({
+            "video_id": vid['video_id'],
             "date": vid['upload_date'],
-            "text": snippet,
-            "sentiment": "Positive" if vid['sentiment_score'] > 60 else "Negative"
+            "text": raw_snippet
         })
         videos.append(vid)
 
-    # 5. Marketing Brief (Cached)
-    marketing_brief = get_marketing_brief(
-        conn, product_id, product['name'], llm_context, metrics['last_mentioned']
+    # 5. Get Intelligence (Cached or New)
+    intelligence = get_product_intelligence(
+        conn, product_id, product['name'], llm_input_data, metrics['last_mentioned']
     )
 
-    # 6. Graph Data (Time Series)
-    # Aggregate by date for the charts
+    marketing_brief = intelligence.get('brief')
+    video_summaries = intelligence.get('video_summaries', {})
+
+    # 6. Map specific summaries back to the video objects
+    final_videos = []
+    for v in videos:
+        # If LLM gave us a specific summary, use it. Otherwise fallback to raw snippet.
+        if v['video_id'] in video_summaries:
+            v['display_summary'] = video_summaries[v['video_id']]
+            v['is_ai_summary'] = True
+        else:
+            v['display_summary'] = v['raw_snippet']
+            v['is_ai_summary'] = False
+        final_videos.append(v)
+
+    # 7. Chart Data
     timeline_rows = conn.execute("""
         SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score
-        FROM product_mentions
-        WHERE product_id = ?
-        GROUP BY day
-        ORDER BY day ASC
+        FROM product_mentions WHERE product_id = ? GROUP BY day ORDER BY day ASC
     """, (product_id,)).fetchall()
 
     chart_labels = [r['day'] for r in timeline_rows]
@@ -473,8 +570,8 @@ def product_profile(product_id):
 
     return render_template(
         "product_profile.html",
-        product=product, metrics=metrics, top_creator=top_creator, videos=videos,
-        marketing_brief=marketing_brief,
+        product=product, metrics=metrics, top_creator=top_creator,
+        videos=final_videos, marketing_brief=marketing_brief,
         chart_labels=chart_labels, chart_mentions=chart_mentions, chart_sentiment=chart_sentiment
     )
 
