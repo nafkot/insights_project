@@ -8,14 +8,14 @@
     <div class="search-wrapper">
         <div class="search-group">
             <label class="search-label">Search Brands</label>
-            <input type="text" id="brandSearchInput" class="search-input" placeholder="Brand or Product name...">
-            <div id="brandAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:280px; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
+            <input type="text" id="brandSearchInput" class="search-input" placeholder="Brand or Product name..." autocomplete="off">
+            <div id="brandAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:100%; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
         </div>
 
         <div class="search-group">
             <label class="search-label">Search Channels</label>
-            <input type="text" id="channelSearchInput" class="search-input" placeholder="Channel name or ID...">
-            <div id="channelAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:280px; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
+            <input type="text" id="channelSearchInput" class="search-input" placeholder="Channel name or ID..." autocomplete="off">
+            <div id="channelAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:100%; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
         </div>
     </div>
 </div>
@@ -28,7 +28,7 @@
             {% for item in trending %}
             <li class="ranking-item">
                 <span class="rank-number">{{ loop.index }}</span>
-                <a href="/{{ item['type'] }}/{{ item['id'] }}">{{ item['name'] }}</a>
+                <a href="/{{ item['type'] }}/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
                 <small style="color:#777">{{ item['cnt'] }}</small>
             </li>
             {% endfor %}
@@ -42,7 +42,7 @@
             {% for item in popular %}
             <li class="ranking-item">
                 <span class="rank-number">{{ loop.index }}</span>
-                <a href="/{{ item['type'] }}/{{ item['id'] }}">{{ item['name'] }}</a>
+                <a href="/{{ item['type'] }}/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
                 <small style="color:#777">{{ "%.0f"|format(item['score']) }}%</small>
             </li>
             {% endfor %}
@@ -53,23 +53,135 @@
         <h2>Top Channels</h2>
         <p style="color:#999; font-size:12px; margin-bottom:15px;">By Subscriber Count</p>
         <ul class="ranking-list">
-            {% for ch in channels %}
-            <li class="ranking-item">
-                <span class="rank-number">{{ loop.index }}</span>
-                <a href="/channel/{{ ch['channel_id'] }}">{{ ch['title'] }}</a>
-                <small style="color:#777">{{ "{:,}".format(ch['subscriber_count']) }}</small>
-            </li>
-            {% endfor %}
+            {% if channels %}
+                {% for ch in channels %}
+                <li class="ranking-item">
+                    <span class="rank-number">{{ loop.index }}</span>
+                    <a href="/channel/{{ ch['channel_id'] }}" class="rank-name">{{ ch['title'] }}</a>
+                    <small style="color:#777">{{ "{:,}".format(ch['subscriber_count']) }}</small>
+                </li>
+                {% endfor %}
+            {% else %}
+                <li class="ranking-item" style="color:#999; font-style:italic;">
+                   No channel data yet. Run ingest to populate.
+                </li>
+            {% endif %}
         </ul>
     </div>
 </div>
 
 <script>
-    // ... (Use the same JS logic provided in the previous turn for brandSearchInput/channelSearchInput) ...
-    // Note: ensure DOM IDs match.
-    document.addEventListener("DOMContentLoaded", function() {
-        // [Insert the JS code from the previous turn here]
-    });
-</script>
+document.addEventListener("DOMContentLoaded", function() {
 
+    // --- Utils ---
+    function debounce(func, delay = 200) {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+
+    async function fetchAutoData(query) {
+        if (!query) return null;
+        try {
+            const res = await fetch(`/autocomplete?q=${encodeURIComponent(query)}`);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch(e) { return null; }
+    }
+
+    // --- RENDER FUNCTION WITH ICONS ---
+    const render = (title, items, type) => {
+        if(!items || !items.length) return "";
+
+        let html = `<div style="padding:6px 10px; font-weight:bold; background:#fafafa; font-size:12px; color:#999;">${title}</div>`;
+
+        items.forEach(item => {
+            let badge = "";
+            let iconHtml = "";
+
+            // --- 1. Platform Icons (YouTube vs TikTok) ---
+            if(type === 'channel') {
+                const platform = item.platform || "YouTube";
+                if(platform === "YouTube") {
+                     // Red Play Button
+                     iconHtml = `<svg style="width:14px; height:14px; vertical-align:middle; margin-right:6px; fill:#FF0000;" viewBox="0 0 24 24"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>`;
+                } else {
+                     // TikTok / Other (Black Note)
+                     iconHtml = `<svg style="width:14px; height:14px; vertical-align:middle; margin-right:6px; fill:#000;" viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.65-1.62-1.12v8.76c-.52 4.03-3.71 7.22-7.73 7.33-4.8.1-8.84-3.7-8.86-8.5v-.28c.11-4.79 4.14-8.52 8.94-8.29.13 0 .26.01.39.02v4.2c-2.43-.1-4.63 1.8-4.66 4.34.02 2.45 2.1 4.38 4.54 4.24 2.22-.16 4.06-2.03 4.07-4.26V.02h-.77z"/></svg>`;
+                }
+            }
+
+            // --- 2. "No Data" Badge for AI Suggestions ---
+            if(type === 'semantic') {
+                badge = '<span style="float:right; font-size:10px; color:#bbb; border:1px solid #eee; padding:2px 5px; border-radius:4px;">No Data</span>';
+            }
+
+            // --- 3. Click Actions ---
+            let clickAction = `window.location='/search?q=${encodeURIComponent(item.name)}'`;
+            if(type === 'brand') clickAction = `window.location='/brand/${item.id}'`;
+            if(type === 'product') clickAction = `window.location='/product/${item.id}'`;
+            if(type === 'channel') clickAction = `window.location='/channel/${item.id}'`;
+
+            html += `<div class="autocomplete-item" onclick="${clickAction}">${iconHtml}${item.name} ${badge}</div>`;
+        });
+        return html;
+    };
+
+    // --- Search 1: Brands/Products Logic ---
+    const brandInput = document.getElementById("brandSearchInput");
+    const brandBox = document.getElementById("brandAutoBox");
+
+    brandInput.addEventListener("input", debounce(async () => {
+        const q = brandInput.value.trim();
+        if(!q) { brandBox.style.display = "none"; return; }
+
+        const data = await fetchAutoData(q);
+        if(!data) return;
+
+        let html = "";
+        html += render("Brands", data.brands, "brand");
+        html += render("Products", data.products, "product");
+        html += render("Suggestions", data.semantic, "semantic");
+
+        if(html) {
+            brandBox.innerHTML = html;
+            brandBox.style.display = "block";
+        } else {
+            brandBox.style.display = "none";
+        }
+    }, 200));
+
+
+    // --- Search 2: Channels Logic ---
+    const channelInput = document.getElementById("channelSearchInput");
+    const channelBox = document.getElementById("channelAutoBox");
+
+    channelInput.addEventListener("input", debounce(async () => {
+        const q = channelInput.value.trim();
+        if(!q) { channelBox.style.display = "none"; return; }
+
+        const data = await fetchAutoData(q);
+        if(!data) return;
+
+        let html = "";
+        html += render("Channels", data.channels, "channel");
+
+        if(html) {
+            channelBox.innerHTML = html;
+            channelBox.style.display = "block";
+        } else {
+             channelBox.style.display = "none";
+        }
+    }, 200));
+
+    // Close boxes on click outside
+    document.addEventListener("click", (e) => {
+        if (!brandInput.contains(e.target) && !brandBox.contains(e.target)) brandBox.style.display = "none";
+        if (!channelInput.contains(e.target) && !channelBox.contains(e.target)) channelBox.style.display = "none";
+    });
+
+});
+</script>
 {% endblock %}

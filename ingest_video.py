@@ -10,6 +10,7 @@ from config import DB_PATH
 from llm_ingest import analyze_transcript
 from ingestion.transcript_pipeline import get_transcript_segments
 from ingestion.youtube_client import get_authenticated_service, get_video_metadata
+from ingestion.youtube_client import get_authenticated_service, get_video_metadata, get_channel_details
 
 
 def video_already_exists(video_id: str) -> bool:
@@ -128,6 +129,37 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
     c = conn.cursor()
 
     try:
+        try:
+            yt = get_authenticated_service()
+            ch_data = get_channel_details(yt, video_meta["channel_id"])
+
+            if ch_data:
+                c.execute("""
+                    INSERT INTO channels (
+                        channel_id, title, description, subscriber_count,
+                        video_count, view_count, creation_date,
+                        thumbnail_url, platform
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        subscriber_count = excluded.subscriber_count,
+                        video_count = excluded.video_count,
+                        view_count = excluded.view_count,
+                        thumbnail_url = excluded.thumbnail_url,
+                        platform = excluded.platform
+                """, (
+                    ch_data["channel_id"],
+                    ch_data["title"],
+                    ch_data["description"],
+                    ch_data["subscriber_count"],
+                    ch_data["video_count"],
+                    ch_data["view_count"],
+                    ch_data["creation_date"],
+                    ch_data["thumbnail_url"],
+                    "YouTube"
+                ))
+        except Exception as e:
+            print(f"[WARN] Could not update channel details: {e}")
+        
         # 1) LLM ingestion analysis
         text = _segments_to_text(transcript_segments or [])
         analysis = analyze_transcript(
