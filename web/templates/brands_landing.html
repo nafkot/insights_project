@@ -4,10 +4,10 @@
 <div class="beauty-hero">
     <h1>Beauty & Brands Intelligence</h1>
     <p>Track top performing brands, products and creator sentiment.</p>
-    <div style="margin-top:20px;">
-        <a href="/brands/all" style="display:inline-block; padding:10px 20px; background:white; color:var(--primary-color); border:1px solid var(--primary-color); border-radius:20px; text-decoration:none; font-weight:600; font-size:14px; transition:0.2s;">
-            View Full Brand Directory &rarr;
-        </a>
+
+    <div style="margin-top:20px; display:flex; gap:15px; justify-content:center;">
+        <a href="/brands/all" class="hero-btn">View Brand Directory &rarr;</a>
+        <a href="/products/all" class="hero-btn">View Product Directory &rarr;</a>
     </div>
 
     <div class="search-wrapper">
@@ -31,7 +31,7 @@
         <h2>Trending Now</h2>
         <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest mention volume</p>
 
-        <div style="font-weight:700; color:#2c3e50; margin:15px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Brands</div>
+        <div class="sub-header">Brands</div>
         <ul class="ranking-list">
             {% for item in trending_brands %}
             <li class="ranking-item">
@@ -42,12 +42,27 @@
             {% endfor %}
         </ul>
 
-        <div style="font-weight:700; color:#2c3e50; margin:25px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Products</div>
+        <div class="sub-header" style="margin-top:25px;">Products</div>
         <ul class="ranking-list">
             {% for item in trending_products %}
-            <li class="ranking-item">
+            <li class="ranking-item" style="align-items:center;">
                 <span class="rank-number">{{ loop.index }}</span>
-                <a href="/product/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
+
+                <div style="width:32px; height:32px; background:#f4f4f4; border-radius:4px; overflow:hidden; margin-right:10px; flex-shrink:0;">
+                    {% if item['image_url'] %}
+                        <img src="{{ item['image_url'] }}" style="width:100%; height:100%; object-fit:contain;">
+                    {% else %}
+                        <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#ddd; font-size:9px; text-transform:uppercase;">IMG</div>
+                    {% endif %}
+                </div>
+
+                <div style="flex:1; line-height:1.2;">
+                    <a href="/product/{{ item['id'] }}" class="rank-name" style="display:block;">{{ item['name'] }}</a>
+                    {% if item['brand_name'] %}
+                        <small style="color:#999; font-size:11px;">by {{ item['brand_name'] }}</small>
+                    {% endif %}
+                </div>
+
                 <small style="color:#777">{{ item['cnt'] }}</small>
             </li>
             {% endfor %}
@@ -58,7 +73,7 @@
         <h2>Fan Favorites</h2>
         <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest positive sentiment</p>
 
-        <div style="font-weight:700; color:#2c3e50; margin:15px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Brands</div>
+        <div class="sub-header">Brands</div>
         <ul class="ranking-list">
             {% for item in popular_brands %}
             <li class="ranking-item">
@@ -69,7 +84,7 @@
             {% endfor %}
         </ul>
 
-        <div style="font-weight:700; color:#2c3e50; margin:25px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Products</div>
+        <div class="sub-header" style="margin-top:25px;">Products</div>
         <ul class="ranking-list">
             {% for item in popular_products %}
             <li class="ranking-item">
@@ -89,9 +104,7 @@
                 {% for ch in channels %}
                 <li class="ranking-item">
                     <span class="rank-number">{{ loop.index }}</span>
-                    <a href="/channel/{{ ch['channel_id'] }}" class="rank-name">
-                        {{ ch['title'] }}
-                    </a>
+                    <a href="/channel/{{ ch['channel_id'] }}" class="rank-name">{{ ch['title'] }}</a>
                     <small style="color:#777">{{ "{:,}".format(ch['subscriber_count']) }}</small>
                 </li>
                 {% endfor %}
@@ -104,6 +117,35 @@
     </div>
 
 </div>
+
+<style>
+    .hero-btn {
+        display:inline-block;
+        padding:10px 20px;
+        background:white;
+        color:var(--primary-color);
+        border:1px solid var(--primary-color);
+        border-radius:20px;
+        text-decoration:none;
+        font-weight:600;
+        font-size:14px;
+        transition:0.2s;
+    }
+    .hero-btn:hover {
+        background: var(--primary-color);
+        color: white;
+    }
+    .sub-header {
+        font-weight:700;
+        color:#2c3e50;
+        margin:15px 0 8px;
+        font-size:13px;
+        text-transform:uppercase;
+        letter-spacing:1px;
+        border-bottom:1px solid #eee;
+        padding-bottom:4px;
+    }
+</style>
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {

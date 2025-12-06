@@ -14,6 +14,7 @@ sys.path.append(BASE_DIR)
 
 from utils.search_engine import answer_user_query
 from utils.autocomplete import hybrid_autocomplete, llm_semantic_suggestions
+from web.qa import ask_insights_llm
 
 load_dotenv()
 
@@ -124,14 +125,51 @@ def home(): return render_template("home.html")
 @app.route("/brands")
 def brands_hub():
     conn = get_db()
-    # (Same queries as before, keeping brevity)
-    trending_brands = conn.execute("SELECT b.name, b.id, count(bm.id) as cnt FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id GROUP BY b.id ORDER BY cnt DESC LIMIT 5").fetchall()
-    trending_products = conn.execute("SELECT p.name, p.id, count(pm.id) as cnt FROM products p JOIN product_mentions pm ON p.id = pm.product_id GROUP BY p.id ORDER BY cnt DESC LIMIT 5").fetchall()
+
+    # 1. Trending Brands
+    trending_brands = conn.execute("""
+        SELECT b.name, b.id, count(bm.id) as cnt
+        FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
+        GROUP BY b.id ORDER BY cnt DESC LIMIT 5
+    """).fetchall()
+
+    # 2. Trending Products (UPDATED: Fetches Brand Name & Image)
+    trending_products = conn.execute("""
+        SELECT
+            p.name,
+            p.id,
+            p.image_url,
+            b.name as brand_name,
+            count(pm.id) as cnt
+        FROM products p
+        JOIN product_mentions pm ON p.id = pm.product_id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        GROUP BY p.id
+        ORDER BY cnt DESC LIMIT 5
+    """).fetchall()
+
+    # ... (Keep popular_brands, popular_products, channels queries same as before) ...
     popular_brands = conn.execute("SELECT b.name, b.id, AVG(bm.sentiment_score) as score, count(bm.id) as c FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id GROUP BY b.id HAVING c > 1 ORDER BY score DESC LIMIT 5").fetchall()
     popular_products = conn.execute("SELECT p.name, p.id, AVG(pm.sentiment_score) as score, count(pm.id) as c FROM products p JOIN product_mentions pm ON p.id = pm.product_id GROUP BY p.id HAVING c > 1 ORDER BY score DESC LIMIT 5").fetchall()
     channels = conn.execute("SELECT channel_id, title, subscriber_count, platform FROM channels ORDER BY subscriber_count DESC LIMIT 10").fetchall()
 
-    return render_template("brands_landing.html", trending_brands=trending_brands, trending_products=trending_products, popular_brands=popular_brands, popular_products=popular_products, channels=channels)
+    return render_template(
+        "brands_landing.html",
+        trending_brands=trending_brands,
+        trending_products=trending_products,
+        popular_brands=popular_brands,
+        popular_products=popular_products,
+        channels=channels
+    )
+
+@app.route("/channels/all")
+def channels_directory():
+    conn = get_db()
+    # Fetch channels with video counts
+    channels = conn.execute("""
+        SELECT * FROM channels ORDER BY subscriber_count DESC
+    """).fetchall()
+    return render_template("channels_list.html", channels=channels)
 
 @app.route("/search")
 def search():
@@ -185,9 +223,12 @@ def brand_profile(brand_id):
         GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1
     """, (brand_id,)).fetchone()
 
-    # --- CHANGE: Removed LIMIT 5 to show ALL products for this brand ---
     top_products = conn.execute("""
-        SELECT p.id, p.name, COUNT(pm.id) as cnt, AVG(pm.sentiment_score) as score
+        SELECT
+            p.id,
+            p.name,
+            COUNT(pm.id) as cnt,
+            COALESCE(AVG(pm.sentiment_score), 0) as score
         FROM products p
         LEFT JOIN product_mentions pm ON p.id = pm.product_id
         WHERE p.brand_id = ?
@@ -327,6 +368,23 @@ def products_directory():
     """).fetchall()
 
     return render_template("products_list.html", products=products)
+
+@app.route("/api/qa", methods=["POST"])
+def api_qa():
+    data = request.json
+    context_type = data.get("context_type")
+    context_name = data.get("context_name")
+    question = data.get("question")
+
+    # Aggregates & Segments passed from frontend (or we could fetch DB here)
+    # For simplicity, we use what the frontend sends if available,
+    # but strictly we should re-fetch for security.
+    # Current implementation relies on the frontend passing the context it has.
+    aggregates = data.get("aggregates", {})
+    segments = data.get("segments", [])
+
+    answer = ask_insights_llm(context_type, context_name, question, aggregates, segments)
+    return jsonify({"answer": answer})
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

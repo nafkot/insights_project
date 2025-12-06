@@ -276,12 +276,25 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
             if not isinstance(p_dict, dict): continue
 
             product_name = p_dict.get("product")
-            if not product_name: continue
+
+            # --- FIX: STRICT PRODUCT FILTER ---
+            # If the LLM returned null/empty for product name (meaning it was just a category),
+            # we SKIP creating a product record. This keeps your DB clean.
+            if not product_name:
+                continue
 
             brand_for_product = p_dict.get("brand") or main_brand_name
+
+            # Upsert (Pass category meta if available)
+            # We assume upsert_product handles the meta JSON if we wanted to store it
             product_id = upsert_product(conn, product_name, brand_name=brand_for_product)
 
             if product_id:
+                # Optionally update category in meta if not present
+                if p_dict.get("category"):
+                    meta_json = json.dumps({"category": p_dict["category"]})
+                    c.execute("UPDATE products SET meta = ? WHERE id = ? AND meta IS NULL", (meta_json, product_id))
+
                 c.execute(
                     """
                     INSERT INTO product_mentions (
@@ -293,9 +306,10 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                 )
 
                 # --- CACHE INVALIDATION ---
-                cache_key = f"product:{product_id}:intel_v2"
+                cache_key = f"product:{product_id}:intel_v3"
                 c.execute("DELETE FROM cached_dashboards WHERE key=?", (cache_key,))
                 print(f"[CACHE] Invalidated brief for product {product_id} ({product_name})")
+
 
         conn.commit()
         print(f"[OK] Saved video {video_meta['id']} with {len(brands)} brands.")
@@ -304,21 +318,30 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
 
 
 def ingest_single_video(video_id: str) -> None:
+    # 1. Check DB (Do we have the analysis?)
     if video_already_exists(video_id):
-        print(f"[SKIP] Video {video_id} already ingested – skipping.")
+        print(f"[SKIP] Video {video_id} already fully ingested (Analysis in DB).")
         return
 
+    # 2. Fetch Metadata (Free/Cheap YouTube API)
     youtube = get_authenticated_service()
     video_meta = get_video_metadata(youtube, video_id)
     if not video_meta:
-        print(f"[{video_id}] No metadata found.")
+        print(f"[{video_id}] No metadata found via YouTube API.")
         return
+
+    # 3. Fetch Transcript (Check Cache First -> Then API)
+    # The 'get_transcript_segments' function (in transcript_pipeline.py)
+    # ALREADY checks the 'transcript_cache' folder first.
+    # We just need to trust it, but we'll log the start.
+    # print(f"[{video_id}] checking transcript availability...")
 
     segments = get_transcript_segments(video_id)
     if not segments:
         print(f"[{video_id}] No transcript segments available – skipping.")
         return
 
+    # 4. Run Analysis & Save
     save_video_to_db(video_meta, segments)
 
 

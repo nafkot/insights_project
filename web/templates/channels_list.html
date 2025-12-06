@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="profile-header">
+    <div style="max-width:1200px; margin:0 auto;">
+        <h1 class="profile-title">Channel Directory</h1>
+        <p class="profile-meta">Tracking {{ channels|length }} creators.</p>
+    </div>
+</div>
+
+<div style="max-width:1200px; margin:0 auto; padding:0 20px 60px;">
+    <div class="insight-grid" style="grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));">
+        {% for c in channels %}
+        <a href="/channel/{{ c.channel_id }}" class="insight-card" style="text-decoration:none; text-align:left; display:flex; align-items:center; gap:15px;">
+            <div style="width:50px; height:50px; background:#eee; border-radius:50%; overflow:hidden; flex-shrink:0;">
+                {% if c.thumbnail_url %}
+                    <img src="{{ c.thumbnail_url }}" style="width:100%; height:100%; object-fit:cover;">
+                {% endif %}
+            </div>
+            <div>
+                <div style="font-weight:700; color:var(--text-dark);">{{ c.title }}</div>
+                <div style="font-size:12px; color:#888;">{{ "{:,}".format(c.subscriber_count) }} subs</div>
+                <div style="font-size:11px; color:var(--primary-color); margin-top:2px;">{{ c.platform }}</div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

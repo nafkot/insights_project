@@ -12,13 +12,22 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
+
+    <div id="global-loader">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loading-msg">Loading...</div>
+    </div>
 
     <header class="app-header">
         <a href="/" class="logo">Insights <span>.</span></a>
 
         <nav class="nav-menu">
+            <a href="/brands/all" class="nav-item" style="text-decoration:none;">Brands</a>
 	    <a href="/products/all" class="nav-item" style="text-decoration:none;">Products</a>
+	    <a href="/channels/all" class="nav-item" style="text-decoration:none;">Channels</a>
+
             <div class="nav-item">
                 Categories
                 <div class="dropdown-content">
@@ -50,5 +59,80 @@
 
     {% block content %}{% endblock %}
 
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const loader = document.getElementById("global-loader");
+            const msgElement = document.getElementById("loading-msg");
+
+            // Standard "Analysis" messages
+            const analysisMessages = [
+                "Connecting to knowledge graph...",
+                "Analyzing sentiment patterns...",
+                "Extracting key themes...",
+                "Generating AI Strategic Brief...",
+                "Finalizing report..."
+            ];
+
+            // Simple "Fetching" messages (for lists/directories)
+            const fetchMessages = [
+                "Connecting to database...",
+                "Fetching directory...",
+                "Sorting results...",
+                "Almost there..."
+            ];
+
+            let msgIndex = 0;
+            let intervalId = null;
+
+            function startLoadingSequence(targetUrl) {
+                loader.style.display = "flex";
+                msgIndex = 0;
+
+                // Choose message set based on destination
+                let currentMessages = fetchMessages;
+                if (targetUrl && (targetUrl.includes("/brand/") || targetUrl.includes("/product/") || targetUrl.includes("/video/"))) {
+                    // If going to a specific profile page, use Analysis messages
+                    if (!targetUrl.includes("/all")) {
+                        currentMessages = analysisMessages;
+                    }
+                }
+
+                msgElement.textContent = currentMessages[0];
+
+                if (intervalId) clearInterval(intervalId);
+                intervalId = setInterval(() => {
+                    msgIndex = (msgIndex + 1) % currentMessages.length;
+                    msgElement.textContent = currentMessages[msgIndex];
+                }, 1200);
+            }
+
+            // 1. Handle Link Clicks
+            document.querySelectorAll("a").forEach(link => {
+                link.addEventListener("click", function(e) {
+                    const href = this.getAttribute("href");
+
+                    // Trigger only for internal pages, ignore anchors/JS
+                    if (href && href.startsWith("/") && !href.startsWith("#")) {
+                        startLoadingSequence(href);
+                    }
+                });
+            });
+
+            // 2. Handle Form Submits (Search)
+            document.querySelectorAll("form").forEach(form => {
+                form.addEventListener("submit", function() {
+                    startLoadingSequence("/search"); // Assume search implies analysis
+                });
+            });
+
+            // 3. Handle Browser "Back" Button (Hide loader if page is cached)
+            window.addEventListener("pageshow", function(event) {
+                if (event.persisted) {
+                    loader.style.display = "none";
+                    if (intervalId) clearInterval(intervalId);
+                }
+            });
+        });
+    </script>
 </body>
 </html>
