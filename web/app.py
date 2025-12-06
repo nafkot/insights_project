@@ -126,31 +126,44 @@ def home(): return render_template("home.html")
 def brands_hub():
     conn = get_db()
 
-    # 1. Trending Brands
+    # ... inside brands_hub ...
+
+    # 1. Trending Brands (Reverted to standard count, no image subquery)
     trending_brands = conn.execute("""
         SELECT b.name, b.id, count(bm.id) as cnt
         FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
         GROUP BY b.id ORDER BY cnt DESC LIMIT 5
     """).fetchall()
 
-    # 2. Trending Products (UPDATED: Fetches Brand Name & Image)
+    # 2. Trending Products (Removed image_url)
     trending_products = conn.execute("""
         SELECT
-            p.name,
-            p.id,
-            p.image_url,
+            p.name, p.id,
             b.name as brand_name,
             count(pm.id) as cnt
         FROM products p
         JOIN product_mentions pm ON p.id = pm.product_id
         LEFT JOIN brands b ON p.brand_id = b.id
-        GROUP BY p.id
-        ORDER BY cnt DESC LIMIT 5
+        GROUP BY p.id ORDER BY cnt DESC LIMIT 5
     """).fetchall()
 
-    # ... (Keep popular_brands, popular_products, channels queries same as before) ...
+    # ... (popular_brands remains the same) ...
     popular_brands = conn.execute("SELECT b.name, b.id, AVG(bm.sentiment_score) as score, count(bm.id) as c FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id GROUP BY b.id HAVING c > 1 ORDER BY score DESC LIMIT 5").fetchall()
-    popular_products = conn.execute("SELECT p.name, p.id, AVG(pm.sentiment_score) as score, count(pm.id) as c FROM products p JOIN product_mentions pm ON p.id = pm.product_id GROUP BY p.id HAVING c > 1 ORDER BY score DESC LIMIT 5").fetchall()
+
+    # 4. Popular Products (Removed image_url)
+    popular_products = conn.execute("""
+        SELECT
+            p.name, p.id,
+            b.name as brand_name,
+            AVG(pm.sentiment_score) as score,
+            count(pm.id) as c
+        FROM products p
+        JOIN product_mentions pm ON p.id = pm.product_id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        GROUP BY p.id HAVING c > 1
+        ORDER BY score DESC LIMIT 5
+    """).fetchall()
+
     channels = conn.execute("SELECT channel_id, title, subscriber_count, platform FROM channels ORDER BY subscriber_count DESC LIMIT 10").fetchall()
 
     return render_template(

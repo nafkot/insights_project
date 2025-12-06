@@ -118,7 +118,6 @@ def init_db():
     """)
 
     # Products
-    # Added: brand_id foreign key
     c.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,9 +126,13 @@ def init_db():
             brand_name TEXT,
             meta TEXT,
             brand_id INTEGER,
+            image_url TEXT,
+            main_category TEXT,
+            labels TEXT,
             FOREIGN KEY(brand_id) REFERENCES brands(id)
         )
     """)
+
 
     # Product mentions
     c.execute("""
