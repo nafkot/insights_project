@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, g, jsonify, url_for, redirect
 from dotenv import load_dotenv
 from openai import OpenAI
 import markdown
+from datetime import datetime
 
 # ------------------------------------------------------------------------------
 # CRITICAL FIX: Add the parent directory to sys.path to allow importing 'utils'
@@ -294,11 +295,102 @@ def generate_marketing_brief(product_name, context_segments):
 
 
 # --- Route: Product Profile ---
+# ... (keep existing imports) ...
+from datetime import datetime
+
+# --- Helper: Marketing Brief with Caching ---
+def get_marketing_brief(conn, product_id, product_name, context_segments, last_mention_date):
+    """
+    Fetches cached brief or generates a new one if stale/missing.
+    """
+    if not context_segments:
+        return None
+
+    cache_key = f"product:{product_id}:brief"
+
+    # 1. Check Cache
+    cached = conn.execute(
+        "SELECT payload, updated_at FROM cached_dashboards WHERE key = ?",
+        (cache_key,)
+    ).fetchone()
+
+    # If cached and fresh (updated AFTER the last video mention), use it
+    if cached:
+        cache_ts = cached['updated_at']
+        # Simple string comparison works for ISO dates (YYYY-MM-DD)
+        if last_mention_date and cache_ts >= last_mention_date:
+            return cached['payload']
+
+    # 2. Generate New Brief (LLM)
+    print(f"[LLM] Generating new marketing brief for {product_name}...")
+
+    # Prepare text for LLM (Limit to last 30 mentions for speed/cost)
+    recent_segments = context_segments[:30]
+    context_text = "\n".join([f"- {s['date']} ({s['sentiment']}): {s['text']}" for s in recent_segments])
+
+    prompt = f"""
+    You are a Senior Marketing Analyst.
+    Analyze these social media discussions about the product "{product_name}".
+
+    DATA:
+    {context_text}
+
+    TASK:
+    Write a concise "Marketing Intelligence Brief" (HTML format, no markdown blocks).
+
+    Structure:
+    <div style="margin-bottom:12px;"><strong>Executive Summary:</strong> [One sentence verdict]</div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+        <div>
+            <strong>Key Themes</strong>
+            <ul>
+                <li>[Theme 1]</li>
+                <li>[Theme 2]</li>
+                <li>[Theme 3]</li>
+            </ul>
+        </div>
+        <div>
+            <strong>Sentiment & Timing</strong>
+            <ul>
+                <li>[Observation on sentiment trend]</li>
+                <li>[Are these recent or old?]</li>
+            </ul>
+        </div>
+    </div>
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a helpful marketing analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+        )
+        brief_html = response.choices[0].message.content
+
+        # 3. Save to Cache
+        conn.execute("""
+            INSERT INTO cached_dashboards (key, type, payload, updated_at)
+            VALUES (?, 'brief', ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
+        """, (cache_key, brief_html))
+        conn.commit()
+
+        return brief_html
+
+    except Exception as e:
+        print(f"Error generating brief: {e}")
+        return None
+
+
 @app.route("/product/<int:product_id>")
 def product_profile(product_id):
     conn = get_db()
 
-    # 1. Product Details
+    # 1. Product & Brand Info
     product = conn.execute("""
         SELECT p.id, p.name, b.id AS brand_id, b.name AS brand_name
         FROM products p
@@ -315,8 +407,7 @@ def product_profile(product_id):
             COUNT(DISTINCT channel_id) as unique_channels,
             AVG(sentiment_score) as avg_sentiment,
             MAX(first_seen_date) as last_mentioned
-        FROM product_mentions
-        WHERE product_id = ?
+        FROM product_mentions WHERE product_id = ?
     """, (product_id,)).fetchone()
 
     # 3. Top Creator
@@ -329,11 +420,10 @@ def product_profile(product_id):
         ORDER BY cnt DESC LIMIT 1
     """, (product_id,)).fetchone()
 
-    # 4. Fetch Videos AND Specific Context Segments
-    # We first find the videos
+    # 4. Fetch Videos & Segments
     videos_rows = conn.execute("""
         SELECT
-            v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
+            v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url, v.overall_summary,
             pm.mention_count, pm.sentiment_score
         FROM product_mentions pm
         JOIN videos v ON pm.video_id = v.video_id
@@ -342,48 +432,50 @@ def product_profile(product_id):
     """, (product_id,)).fetchall()
 
     videos = []
-    all_segments_for_llm = []
+    llm_context = []
 
-    # For each video, find the specific text segment where product is mentioned
     for row in videos_rows:
         vid = dict(row)
-
-        # Heuristic: Find segments containing the product name
-        # In a production app, you might use FTS or store the specific segment_id in product_mentions
+        # Find specific context
         matches = conn.execute("""
-            SELECT text, start_time FROM video_segments
-            WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3
+            SELECT text FROM video_segments
+            WHERE video_id = ? AND lower(text) LIKE ? LIMIT 2
         """, (vid['video_id'], f"%{product['name'].lower()}%")).fetchall()
 
-        # Fallback: if no direct string match (e.g. slight variation), grab the first 3 segments
-        # or handle gracefully.
+        snippet = " ... ".join([m['text'] for m in matches]) if matches else "Mentioned in video."
+        vid['snippet'] = snippet
 
-        context_snippets = [m['text'] for m in matches]
-        vid['context'] = " ... ".join(context_snippets) if context_snippets else "Product mentioned in this video."
-
-        # Add to list for LLM
-        if context_snippets:
-            all_segments_for_llm.append({
-                "date": vid['upload_date'],
-                "text": vid['context'],
-                "sentiment": "Positive" if vid['sentiment_score'] > 60 else "Negative"
-            })
-
+        llm_context.append({
+            "date": vid['upload_date'],
+            "text": snippet,
+            "sentiment": "Positive" if vid['sentiment_score'] > 60 else "Negative"
+        })
         videos.append(vid)
 
-    # 5. Generate Marketing Brief (Live LLM Call)
-    # Only if we have data
-    marketing_brief = None
-    if all_segments_for_llm:
-        marketing_brief = generate_marketing_brief(product['name'], all_segments_for_llm)
+    # 5. Marketing Brief (Cached)
+    marketing_brief = get_marketing_brief(
+        conn, product_id, product['name'], llm_context, metrics['last_mentioned']
+    )
+
+    # 6. Graph Data (Time Series)
+    # Aggregate by date for the charts
+    timeline_rows = conn.execute("""
+        SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score
+        FROM product_mentions
+        WHERE product_id = ?
+        GROUP BY day
+        ORDER BY day ASC
+    """, (product_id,)).fetchall()
+
+    chart_labels = [r['day'] for r in timeline_rows]
+    chart_mentions = [r['cnt'] for r in timeline_rows]
+    chart_sentiment = [r['score'] for r in timeline_rows]
 
     return render_template(
         "product_profile.html",
-        product=product,
-        metrics=metrics,
-        top_creator=top_creator,
-        videos=videos,
-        marketing_brief=marketing_brief
+        product=product, metrics=metrics, top_creator=top_creator, videos=videos,
+        marketing_brief=marketing_brief,
+        chart_labels=chart_labels, chart_mentions=chart_mentions, chart_sentiment=chart_sentiment
     )
 
 

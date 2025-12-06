@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-
 <div class="profile-header">
     <div style="max-width:1200px; margin:0 auto;">
         <h1 class="profile-title">{{ product.name }}</h1>
@@ -13,90 +12,147 @@
     </div>
 </div>
 
-<div class="insight-grid">
-    <div class="insight-card">
-        <span class="insight-label">Total Mentions</span>
-        <div class="insight-value">{{ metrics.total_mentions }}</div>
-    </div>
-    <div class="insight-card">
-        <span class="insight-label">Avg Sentiment</span>
-        <div class="insight-value">{{ "%.0f"|format(metrics.avg_sentiment or 0) }}%</div>
-        <small style="color:#999;">Positive</small>
-    </div>
-    <div class="insight-card">
-        <span class="insight-label">Top Creator</span>
-        <div class="insight-value" style="font-size:1.4rem;">
-            {{ top_creator['channel_name'] if top_creator else "N/A" }}
-        </div>
-    </div>
-    <div class="insight-card">
-        <span class="insight-label">Last Mentioned</span>
-        <div class="insight-value" style="font-size:1.2rem; margin-top:5px;">
-            {{ metrics.last_mentioned[:10] if metrics.last_mentioned else "N/A" }}
-        </div>
-    </div>
-</div>
+<div style="max-width:1200px; margin:0 auto; padding:0 20px;">
 
-{% if marketing_brief %}
-<div class="mention-feed">
-    <div style="background: linear-gradient(135deg, #fff5f7 0%, #fff 100%); border:1px solid #fadadd; padding:30px; border-radius:12px; box-shadow: 0 4px 15px rgba(212, 106, 126, 0.08);">
-        <h2 style="font-family:var(--font-serif); margin-top:0; color:var(--primary-color);">✨ AI Marketing Intelligence</h2>
-        <div style="line-height:1.6; color:#444;">
-            {{ marketing_brief | safe }}
-        </div>
-    </div>
-</div>
-{% endif %}
+    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:30px; margin-bottom:40px;">
 
-<div class="mention-feed">
-    <h3 style="font-family:var(--font-serif); margin-bottom:20px; color:#2c3e50; border-bottom:1px solid #eee; padding-bottom:10px;">
-        Discussion History ({{ videos|length }} Videos)
-    </h3>
+        <div style="background: linear-gradient(135deg, #fff 0%, #fff9fb 100%); border:1px solid #e1e4e8; padding:24px; border-radius:12px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3 style="margin:0; font-family:var(--font-serif); color:var(--text-dark);">✨ Market Intelligence</h3>
+                <span style="font-size:11px; color:#999; background:#fff; padding:2px 8px; border-radius:10px; border:1px solid #eee;">AI Generated</span>
+            </div>
 
-    {% if videos %}
-        {% for v in videos %}
-        <div class="mention-card">
-            {% if v.thumbnail_url %}
-            <a href="/video/{{ v.video_id }}">
-                <img src="{{ v.thumbnail_url }}" alt="Thumbnail" class="mention-thumb">
-            </a>
+            {% if marketing_brief %}
+                <div style="font-size:14px; line-height:1.6; color:#444;">
+                    {{ marketing_brief | safe }}
+                </div>
             {% else %}
-            <div class="mention-thumb" style="display:flex; align-items:center; justify-content:center; color:#ccc;">No Image</div>
+                <p style="color:#999; font-style:italic;">Not enough data to generate insights yet.</p>
             {% endif %}
+        </div>
 
-            <div class="mention-content">
-                <div class="mention-header">
-                    <span>{{ v.upload_date[:10] }}</span>
-                    <span>by <a href="#" style="font-weight:600; color:#555;">{{ v.channel_name }}</a></span>
-                </div>
-
-                <a href="/video/{{ v.video_id }}" class="mention-title">{{ v.title }}</a>
-
-                <div style="margin-bottom:10px;">
-                    {% if v.sentiment_score > 70 %}
-                        <span class="sentiment-badge sent-pos">Positive</span>
-                    {% elif v.sentiment_score < 40 %}
-                        <span class="sentiment-badge sent-neg">Negative</span>
-                    {% else %}
-                        <span class="sentiment-badge sent-neu">Neutral</span>
-                    {% endif %}
-                </div>
-
-                <div class="mention-snippet" style="border-left: 3px solid var(--primary-color);">
-                    <strong style="color:var(--primary-color); font-size:11px; text-transform:uppercase; display:block; margin-bottom:4px;">Discussion Context:</strong>
-                    "...{{ v.context }}..."
-                </div>
-
-                <div style="margin-top:8px; text-align:right;">
-                    <a href="/video/{{ v.video_id }}" style="font-size:12px; color:var(--text-muted);">View Full Analysis &rarr;</a>
-                </div>
+        <div style="display:grid; grid-template-rows: 1fr 1fr; gap:15px;">
+            <div class="insight-card" style="display:flex; flex-direction:column; justify-content:center;">
+                <span class="insight-label">Total Mentions</span>
+                <div class="insight-value">{{ metrics.total_mentions }}</div>
+                <small style="color:#999;">Across {{ metrics.unique_channels }} channels</small>
+            </div>
+            <div class="insight-card" style="display:flex; flex-direction:column; justify-content:center;">
+                <span class="insight-label">Avg Sentiment</span>
+                <div class="insight-value">{{ "%.0f"|format(metrics.avg_sentiment or 0) }}%</div>
             </div>
         </div>
-        {% endfor %}
+    </div>
 
-    {% else %}
-        <p style="text-align:center; padding:40px; color:#999;">No discussions found.</p>
-    {% endif %}
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:30px; margin-bottom:60px;">
+        <div class="list-card">
+            <h3>Mentions Over Time</h3>
+            <canvas id="mentionsChart" height="200"></canvas>
+        </div>
+        <div class="list-card">
+            <h3>Sentiment History</h3>
+            <canvas id="sentimentChart" height="200"></canvas>
+        </div>
+    </div>
+
+    <div class="mention-feed" style="margin:0;">
+        <h3 style="font-family:var(--font-serif); border-bottom:1px solid #eee; padding-bottom:12px; margin-bottom:24px;">
+            Discussion History
+        </h3>
+
+        {% if videos %}
+            {% for v in videos %}
+            <div class="mention-card">
+                {% if v.thumbnail_url %}
+                <a href="/video/{{ v.video_id }}">
+                    <img src="{{ v.thumbnail_url }}" alt="Thumb" class="mention-thumb">
+                </a>
+                {% else %}
+                <div class="mention-thumb" style="display:flex; align-items:center; justify-content:center; color:#ccc;">No Image</div>
+                {% endif %}
+
+                <div class="mention-content">
+                    <div class="mention-header">
+                        <span>{{ v.upload_date[:10] }}</span>
+                        <span>by <a href="/channel/{{ v.channel_id }}" style="font-weight:600;">{{ v.channel_name }}</a></span>
+                    </div>
+
+                    <a href="/video/{{ v.video_id }}" class="mention-title">{{ v.title }}</a>
+
+                    <div style="margin-bottom:12px;">
+                        {% if v.sentiment_score > 60 %}
+                            <span class="sentiment-badge sent-pos">Positive</span>
+                        {% elif v.sentiment_score < 40 %}
+                            <span class="sentiment-badge sent-neg">Negative</span>
+                        {% else %}
+                            <span class="sentiment-badge sent-neu">Neutral</span>
+                        {% endif %}
+                    </div>
+
+                    <div style="font-size:13px; color:#666; margin-bottom:8px; line-height:1.4;">
+                        <strong>Video Topic:</strong> {{ v.overall_summary[:150] }}...
+                    </div>
+
+                    <div class="mention-snippet" style="border-left: 3px solid var(--primary-color);">
+                        <strong style="color:var(--primary-color); font-size:11px; text-transform:uppercase; display:block; margin-bottom:4px;">
+                            Discussion on {{ product.name }}:
+                        </strong>
+                        "...{{ v.snippet }}..."
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="text-align:center; color:#999;">No mentions found.</p>
+        {% endif %}
+    </div>
 
 </div>
+
+<script>
+    const labels = {{ chart_labels | tojson }};
+    const mentionsData = {{ chart_mentions | tojson }};
+    const sentimentData = {{ chart_sentiment | tojson }};
+
+    if(labels.length > 0) {
+        // Mentions Chart
+        new Chart(document.getElementById('mentionsChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Mentions',
+                    data: mentionsData,
+                    backgroundColor: 'rgba(212, 106, 126, 0.6)',
+                    borderColor: 'rgba(212, 106, 126, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+            }
+        });
+
+        // Sentiment Chart
+        new Chart(document.getElementById('sentimentChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Sentiment Score (0-100)',
+                    data: sentimentData,
+                    borderColor: '#4caf50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { min: 0, max: 100 } }
+            }
+        });
+    }
+</script>
 {% endblock %}

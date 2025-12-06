@@ -298,6 +298,33 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     (product_id, brand_id, video_meta["id"], channel_id, 1, score, upload_date),
                 )
 
+        # --- 5) CACHE INVALIDATION ---
+        # If we just added new mentions for products, their cached briefs are now stale.
+        # We delete them so they regenerate on the next page view.
+        if products:
+            # Get list of product IDs mentioned in this video
+            # (We need to query the IDs we just inserted/found)
+            for p in products:
+                # We need to resolve the ID again or track it during the loop above.
+                # A simpler way: The upsert_product function returns the ID.
+                # Let's assume you track the IDs in a list `product_ids_found` 
+                # inside the product loop above.
+                pass 
+            
+            # Since we didn't track IDs in a list in the previous block, 
+            # let's just do a quick cleanup based on the 'products' list of names.
+            # This is slightly inefficient but safe.
+            for p_dict in products:
+                if isinstance(p_dict, dict) and p_dict.get("product"):
+                    p_name = p_dict.get("product")
+                    # Find ID
+                    row = c.execute("SELECT id FROM products WHERE lower(name)=?", (normalize_name(p_name),)).fetchone()
+                    if row:
+                        pid = row[0]
+                        cache_key = f"product:{pid}:brief"
+                        c.execute("DELETE FROM cached_dashboards WHERE key=?", (cache_key,))
+                        print(f"[CACHE] Invalidated brief for product {pid} ({p_name})")
+
         conn.commit()
         print(
             f"[OK] Saved video {video_meta['id']} with "
