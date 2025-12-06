@@ -268,6 +268,9 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     (sponsor_id, video_meta["id"], channel_id, 1, score, upload_date),
                 )
 
+                cache_key = f"brand:{brand_id}:intel_v3"
+                c.execute("DELETE FROM cached_dashboards WHERE key=?", (cache_key,))
+
         # --- 5) PRODUCTS & CACHE INVALIDATION ---
         for p_dict in products:
             if not isinstance(p_dict, dict): continue

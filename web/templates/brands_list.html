@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="profile-header">
+    <div style="max-width:1200px; margin:0 auto;">
+        <h1 class="profile-title">Brand Directory</h1>
+        <p class="profile-meta">Index of all {{ brands|length }} brands tracked by the system.</p>
+    </div>
+</div>
+
+<div style="max-width:1200px; margin:0 auto; padding:0 20px 60px;">
+    
+    <input type="text" id="dirSearch" placeholder="Filter brands..." 
+           style="width:100%; padding:15px; border:1px solid #eee; border-radius:8px; margin-bottom:30px; font-size:16px;">
+
+    <div class="insight-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+        {% for b in brands %}
+        <a href="/brand/{{ b.id }}" class="insight-card brand-item" data-name="{{ b.name.lower() }}" 
+           style="text-decoration:none; text-align:left; transition:0.2s; display:block;">
+            <div style="font-size:11px; text-transform:uppercase; color:#999; margin-bottom:5px;">
+                {{ b.category or "Brand" }}
+            </div>
+            <div style="font-weight:700; color:var(--text-dark); font-size:1.1rem; margin-bottom:5px;">
+                {{ b.name }}
+            </div>
+            <div style="font-size:12px; color:var(--primary-color);">
+                {{ b.mention_count }} mentions
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script>
+    // Simple Client-Side Filter
+    document.getElementById('dirSearch').addEventListener('keyup', function(e) {
+        const term = e.target.value.toLowerCase();
+        const items = document.querySelectorAll('.brand-item');
+        
+        items.forEach(item => {
+            const name = item.getAttribute('data-name');
+            if (name.includes(term)) {
+                item.style.display = 'block';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    });
+</script>
+{% endblock %}
