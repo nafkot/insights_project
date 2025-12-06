@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="beauty-hero">
+    <h1>Beauty & Brands Intelligence</h1>
+    <p>Track top performing brands, products and creator sentiment.</p>
+
+    <div class="search-wrapper">
+        <div class="search-group">
+            <label class="search-label">Search Brands</label>
+            <input type="text" id="brandSearchInput" class="search-input" placeholder="Brand or Product name...">
+            <div id="brandAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:280px; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
+        </div>
+
+        <div class="search-group">
+            <label class="search-label">Search Channels</label>
+            <input type="text" id="channelSearchInput" class="search-input" placeholder="Channel name or ID...">
+            <div id="channelAutoBox" class="autocomplete-box" style="display:none; position:absolute; background:white; z-index:99; width:280px; border:1px solid #eee; box-shadow:0 5px 10px rgba(0,0,0,0.1);"></div>
+        </div>
+    </div>
+</div>
+
+<div class="top-lists-container">
+    <div class="list-card">
+        <h2>Trending Now</h2>
+        <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest mention volume</p>
+        <ul class="ranking-list">
+            {% for item in trending %}
+            <li class="ranking-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <a href="/{{ item['type'] }}/{{ item['id'] }}">{{ item['name'] }}</a>
+                <small style="color:#777">{{ item['cnt'] }}</small>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="list-card">
+        <h2>Fan Favorites</h2>
+        <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest positive sentiment</p>
+        <ul class="ranking-list">
+            {% for item in popular %}
+            <li class="ranking-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <a href="/{{ item['type'] }}/{{ item['id'] }}">{{ item['name'] }}</a>
+                <small style="color:#777">{{ "%.0f"|format(item['score']) }}%</small>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="list-card">
+        <h2>Top Channels</h2>
+        <p style="color:#999; font-size:12px; margin-bottom:15px;">By Subscriber Count</p>
+        <ul class="ranking-list">
+            {% for ch in channels %}
+            <li class="ranking-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <a href="/channel/{{ ch['channel_id'] }}">{{ ch['title'] }}</a>
+                <small style="color:#777">{{ "{:,}".format(ch['subscriber_count']) }}</small>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<script>
+    // ... (Use the same JS logic provided in the previous turn for brandSearchInput/channelSearchInput) ...
+    // Note: ensure DOM IDs match.
+    document.addEventListener("DOMContentLoaded", function() {
+        // [Insert the JS code from the previous turn here]
+    });
+</script>
+
+{% endblock %}

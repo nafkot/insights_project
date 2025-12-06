@@ -111,37 +111,51 @@ async function fetchAutocomplete(query) {
 const debouncedAutocomplete = debounce(fetchAutocomplete, 180);
 
 // Render dropdown
-function renderAutocomplete(data) {
-    let html = "";
+// Render dropdown
+    function renderAutocomplete(data) {
+        let html = "";
 
-    function renderSection(title, items, type) {
-        if (!items || items.length === 0) return;
+        function renderSection(title, items, type) {
+            if (!items || items.length === 0) return;
 
-        html += `<div class="autocomplete-section-title">${title}</div>`;
+            html += `<div class="autocomplete-section-title">${title}</div>`;
 
-        items.forEach(item => {
-            html += `
-                <div class="autocomplete-item"
-                     onclick="selectSuggestion('${type}', '${item.id}', '${(item.name || "").replace(/'/g, "")}')">
-                    ${item.name}
-                </div>`;
-        });
+            items.forEach(item => {
+                // Check if this is a semantic (LLM) suggestion
+                let extraBadge = "";
+                let itemClass = "autocomplete-item";
+
+                if (type === "semantic") {
+                    // Style specifically for "No Data Available"
+                    extraBadge = `<span style="font-size: 0.75em; color: #999; border: 1px solid #eee; border-radius: 4px; padding: 2px 6px; margin-left: 10px; float: right;">No Data Available</span>`;
+                    itemClass += " semantic-item";
+                }
+
+                html += `
+                    <div class="${itemClass}"
+                         onclick="selectSuggestion('${type}', '${item.id}', '${(item.name || "").replace(/'/g, "")}')">
+                        ${item.name}
+                        ${extraBadge}
+                    </div>`;
+            });
+        }
+
+        renderSection("Channels", data.channels, "channel");
+        renderSection("Brands", data.brands, "brand");
+        renderSection("Products", data.products, "product");
+        renderSection("Sponsors", data.sponsors, "sponsor");
+
+        // This section will now appear with the "No Data Available" tags
+        renderSection("Suggestions (Not in DB)", data.semantic, "semantic");
+
+        if (!html) {
+            autoBox.style.display = "none";
+            return;
+        }
+
+        autoBox.innerHTML = html;
+        autoBox.style.display = "block";
     }
-
-    renderSection("Channels", data.channels, "channel");
-    renderSection("Brands", data.brands, "brand");
-    renderSection("Products", data.products, "product");
-    renderSection("Sponsors", data.sponsors, "sponsor");
-    renderSection("Semantic suggestions", data.semantic, "semantic");
-
-    if (!html) {
-        autoBox.style.display = "none";
-        return;
-    }
-
-    autoBox.innerHTML = html;
-    autoBox.style.display = "block";
-}
 
 
 // Handle click on suggestion

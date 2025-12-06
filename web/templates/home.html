@@ -1,49 +1,15 @@
 {% extends "base.html" %}
+
 {% block content %}
-<section class="hero">
-  <h1>Social Video Intelligence for Brands & Sponsors</h1>
-  <p>Explore how creators talk about brands, products and sponsors across YouTube.</p>
-</section>
+<div class="home-centered-container">
+    <div class="home-logo-large">
+        Insights <span>.</span>
+    </div>
 
-<section class="grid-3">
-  <div class="card">
-    <h2>Trending Brands</h2>
-    <ul class="pill-list">
-      {% for b in top_brands %}
-        <li>
-          <a href="{{ url_for('brand_dashboard', brand_name=b['name']) }}">
-            {{ b['name'] }} <span>{{ b['mentions'] }}</span>
-          </a>
-        </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <div class="card">
-    <h2>Active Sponsors</h2>
-    <ul class="pill-list">
-      {% for s in top_sponsors %}
-        <li>
-          <a href="{{ url_for('sponsor_dashboard', sponsor_name=s['name']) }}">
-            {{ s['name'] }} <span>{{ s['mentions'] }}</span>
-          </a>
-        </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <div class="card">
-    <h2>Top Channels</h2>
-    <ul class="pill-list">
-      {% for ch in top_channels %}
-        <li>
-          <a href="{{ url_for('channel_profile', channel_id=ch['channel_id']) }}">
-            {{ ch['title'] }}
-          </a>
-        </li>
-      {% endfor %}
-    </ul>
-  </div>
-</section>
+    <div class="home-search-box">
+        <form action="/search" method="get">
+            <input type="text" name="q" class="home-search-input" placeholder="Search brands, products, or channels..." autofocus autocomplete="off">
+        </form>
+        </div>
+</div>
 {% endblock %}
-

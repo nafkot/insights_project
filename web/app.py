@@ -13,18 +13,19 @@ import os
 import sys
 import json
 import sqlite3
+import markdown
+
 from collections import Counter
 from flask import Flask, render_template, request, g, jsonify
 from dotenv import load_dotenv
 from openai import OpenAI
-import markdown
 from flask import Flask, render_template, request, jsonify, url_for, redirect
+from utils.search_engine import answer_user_query
+from utils.autocomplete import hybrid_autocomplete, llm_semantic_suggestions
+
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(BASE_DIR)
-
-from utils.search_engine import answer_user_query
-from utils.autocomplete import hybrid_autocomplete
 
 
 load_dotenv()
@@ -134,68 +135,86 @@ def generate_answer(user_query, segments, is_comparison=False):
     except:
         return None
 
+# --- Context Processor for Navbar ---
+@app.context_processor
+def inject_categories():
+    """Make categories available to base.html for the dropdown menu."""
+    try:
+        conn = get_db()
+        # Fetch distinct categories that actually have channels
+        rows = conn.execute("SELECT DISTINCT category FROM channels WHERE category IS NOT NULL AND category != '' ORDER BY category").fetchall()
+        categories = [r['category'] for r in rows]
+        
+        # Fallback if DB is empty during dev
+        if not categories:
+            categories = ["Howto & Style", "Entertainment", "Gaming", "Education", "Tech"]
+            
+        return dict(navbar_categories=categories)
+    except Exception:
+        return dict(navbar_categories=[])
 
 # -------------------------------
 # Homepage Search
 # -------------------------------
 
 @app.route("/", methods=["GET"])
-@app.route("/home", methods=["GET"])
 def home():
+    """Google-style Landing Page (Search Only)."""
+    return render_template("home.html")
 
-# Parse channel_ids from query string
-    channel_ids_str = request.args.get("channels", "")
-    if channel_ids_str:
-        current_channel_ids = [c.strip() for c in channel_ids_str.split(",") if c.strip()]
-    else:
-        current_channel_ids = None
 
-    query = request.args.get("q", "").strip()
-    channel_ids_str = request.args.get("channels", "")
-    channel_ids = [c for c in channel_ids_str.split(",") if c]
+@app.route("/brands", methods=["GET"])
+def brands_hub():
+    """The Beauty Dashboard (formerly home)."""
+    conn = get_db()
 
-    videos = []
-    ai_answer = None
-
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    # Show recent videos if no query
-    if not query:
-        c.execute("SELECT video_id, title, channel_name FROM videos ORDER BY upload_date DESC LIMIT 30")
-        for row in c.fetchall():
-            videos.append({
-                "video_id": row[0],
-                "title": row[1],
-                "channel_name": row[2]
-            })
-
-    # User submitted a query → run AI analysis
-    else:
-        # Basic DB search
-        c.execute(
-            "SELECT video_id, title, channel_name FROM videos WHERE title LIKE ? LIMIT 30",
-            (f"%{query}%",)
+    # 1. Trending (Mentions)
+    trending_sql = """
+        SELECT name, 'brand' as type, cnt, id
+        FROM (
+            SELECT b.name, b.id, count(bm.id) as cnt
+            FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
+            GROUP BY b.id
         )
-        for row in c.fetchall():
-            videos.append({
-                "video_id": row[0],
-                "title": row[1],
-                "channel_name": row[2]
-            })
+        UNION ALL
+        SELECT name, 'product' as type, cnt, id
+        FROM (
+            SELECT p.name, p.id, count(pm.id) as cnt
+            FROM products p JOIN product_mentions pm ON p.id = pm.product_id
+            GROUP BY p.id
+        )
+        ORDER BY cnt DESC LIMIT 10
+    """
+    trending = conn.execute(trending_sql).fetchall()
 
-        # AI answer using your LLM pipeline
-        ai_answer = answer_user_query(query, channel_ids=current_channel_ids)
+    # 2. Popular (Sentiment)
+    popular_sql = """
+        SELECT name, 'brand' as type, score, id
+        FROM (
+            SELECT b.name, b.id, AVG(bm.sentiment_score) as score, count(bm.id) as c
+            FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
+            GROUP BY b.id HAVING c > 2
+        )
+        UNION ALL
+        SELECT name, 'product' as type, score, id
+        FROM (
+            SELECT p.name, p.id, AVG(pm.sentiment_score) as score, count(pm.id) as c
+            FROM products p JOIN product_mentions pm ON p.id = pm.product_id
+            GROUP BY p.id HAVING c > 2
+        )
+        ORDER BY score DESC LIMIT 10
+    """
+    popular = conn.execute(popular_sql).fetchall()
 
-    conn.close()
+    # 3. Top Channels
+    channels_sql = "SELECT channel_id, title, subscriber_count FROM channels ORDER BY subscriber_count DESC LIMIT 10"
+    channels = conn.execute(channels_sql).fetchall()
 
     return render_template(
-        "home.html",
-        videos=videos,
-        query=query,
-        ai_answer=ai_answer,
-        active_channels=channel_ids,
-        current_channel_ids=channel_ids_str
+        "brands_landing.html",
+        trending=trending,
+        popular=popular,
+        channels=channels
     )
 
 @app.route("/search", methods=["GET"])
