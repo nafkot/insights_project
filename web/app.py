@@ -233,9 +233,72 @@ def brand_profile(brand_id):
     return render_template("brand_profile.html", brand=brand, videos=mentions, products=products)
 
 
+# ... (keep existing imports) ...
+
+# --- Helper: Generate Marketing Brief ---
+def generate_marketing_brief(product_name, context_segments):
+    """
+    Uses LLM to generate a marketing summary based on actual mentions.
+    context_segments: list of dicts {date, text, sentiment}
+    """
+    if not context_segments:
+        return None
+
+    # Limit to last 40 mentions to fit in context window and stay fast
+    recent_segments = context_segments[:40]
+
+    # Prepare data for LLM
+    context_text = ""
+    for s in recent_segments:
+        context_text += f"- [{s['date']}] ({s['sentiment']}): {s['text']}\n"
+
+    prompt = f"""
+    You are a Senior Marketing Analyst.
+    Analyze these social media discussions about the product "{product_name}".
+
+    DATA:
+    {context_text}
+
+    TASK:
+    Write a concise "Marketing Intelligence Brief" (HTML format, no markdown blocks).
+
+    Structure:
+    <h3>1. Executive Summary</h3>
+    <p>...general consensus...</p>
+
+    <h3>2. Key Themes & Sentiment</h3>
+    <ul>
+      <li>...point 1...</li>
+      <li>...point 2...</li>
+    </ul>
+
+    <h3>3. Timing & Trends</h3>
+    <p>...are these recent? is there a shift in sentiment?...</p>
+
+    Keep it professional, insightful, and under 250 words.
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", # or gpt-4-turbo / gpt-3.5-turbo
+            messages=[
+                {"role": "system", "content": "You are a helpful marketing analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating brief: {e}")
+        return None
+
+
+# --- Route: Product Profile ---
 @app.route("/product/<int:product_id>")
 def product_profile(product_id):
     conn = get_db()
+
+    # 1. Product Details
     product = conn.execute("""
         SELECT p.id, p.name, b.id AS brand_id, b.name AS brand_name
         FROM products p
@@ -245,20 +308,83 @@ def product_profile(product_id):
 
     if not product: return "Product not found", 404
 
+    # 2. Metrics
     metrics = conn.execute("""
-        SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels, AVG(sentiment_score) as avg_sentiment
-        FROM product_mentions WHERE product_id = ?
+        SELECT
+            COUNT(*) as total_mentions,
+            COUNT(DISTINCT channel_id) as unique_channels,
+            AVG(sentiment_score) as avg_sentiment,
+            MAX(first_seen_date) as last_mentioned
+        FROM product_mentions
+        WHERE product_id = ?
     """, (product_id,)).fetchone()
 
-    videos = conn.execute("""
-        SELECT v.video_id, v.title, v.channel_name
+    # 3. Top Creator
+    top_creator = conn.execute("""
+        SELECT channel_name, COUNT(*) as cnt
         FROM product_mentions pm
-        JOIN videos v ON v.video_id = pm.video_id
+        JOIN videos v ON pm.video_id = v.video_id
         WHERE pm.product_id = ?
-        ORDER BY pm.mention_count DESC LIMIT 20
+        GROUP BY v.channel_id
+        ORDER BY cnt DESC LIMIT 1
+    """, (product_id,)).fetchone()
+
+    # 4. Fetch Videos AND Specific Context Segments
+    # We first find the videos
+    videos_rows = conn.execute("""
+        SELECT
+            v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
+            pm.mention_count, pm.sentiment_score
+        FROM product_mentions pm
+        JOIN videos v ON pm.video_id = v.video_id
+        WHERE pm.product_id = ?
+        ORDER BY v.upload_date DESC
     """, (product_id,)).fetchall()
 
-    return render_template("product_profile.html", product=product, metrics=metrics, videos=videos)
+    videos = []
+    all_segments_for_llm = []
+
+    # For each video, find the specific text segment where product is mentioned
+    for row in videos_rows:
+        vid = dict(row)
+
+        # Heuristic: Find segments containing the product name
+        # In a production app, you might use FTS or store the specific segment_id in product_mentions
+        matches = conn.execute("""
+            SELECT text, start_time FROM video_segments
+            WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3
+        """, (vid['video_id'], f"%{product['name'].lower()}%")).fetchall()
+
+        # Fallback: if no direct string match (e.g. slight variation), grab the first 3 segments
+        # or handle gracefully.
+
+        context_snippets = [m['text'] for m in matches]
+        vid['context'] = " ... ".join(context_snippets) if context_snippets else "Product mentioned in this video."
+
+        # Add to list for LLM
+        if context_snippets:
+            all_segments_for_llm.append({
+                "date": vid['upload_date'],
+                "text": vid['context'],
+                "sentiment": "Positive" if vid['sentiment_score'] > 60 else "Negative"
+            })
+
+        videos.append(vid)
+
+    # 5. Generate Marketing Brief (Live LLM Call)
+    # Only if we have data
+    marketing_brief = None
+    if all_segments_for_llm:
+        marketing_brief = generate_marketing_brief(product['name'], all_segments_for_llm)
+
+    return render_template(
+        "product_profile.html",
+        product=product,
+        metrics=metrics,
+        top_creator=top_creator,
+        videos=videos,
+        marketing_brief=marketing_brief
+    )
 
 
 # --- NEW ROUTE: VIDEO PROFILE ---

@@ -1,60 +1,102 @@
 {% extends "base.html" %}
+
 {% block content %}
 
-<div class="page-header">
-    <h1>{{ product.name }}</h1>
-    <p class="subtitle">Product insights & creator discussions</p>
-</div>
-
-<section class="profile-section">
-    <h2>Brand</h2>
-    {% if product.brand_name %}
-        <p>Part of: 
-            <a href="{{ url_for('brand_profile', brand_id=product.brand_id) }}">
-                {{ product.brand_name }}
-            </a>
-        </p>
-    {% else %}
-        <p>No parent brand detected.</p>
-    {% endif %}
-</section>
-
-<section class="profile-section">
-    <h2>Mentions Overview</h2>
-
-    <div class="stats-grid">
-        <div class="stat-box">
-            <label>Total Mentions</label>
-            <div class="value">{{ metrics.total_mentions }}</div>
-        </div>
-        <div class="stat-box">
-            <label>Channels Mentioning</label>
-            <div class="value">{{ metrics.unique_channels }}</div>
-        </div>
-        <div class="stat-box">
-            <label>Avg Sentiment</label>
-            <div class="value">{{ metrics.avg_sentiment }}</div>
+<div class="profile-header">
+    <div style="max-width:1200px; margin:0 auto;">
+        <h1 class="profile-title">{{ product.name }}</h1>
+        <div class="profile-meta">
+            {% if product.brand_name %}
+                Brand: <a href="/brand/{{ product.brand_id }}" style="text-decoration:underline; font-weight:600;">{{ product.brand_name }}</a>
+            {% endif %}
         </div>
     </div>
-</section>
+</div>
 
-<section class="profile-section">
-    <h2>Most Relevant Videos</h2>
+<div class="insight-grid">
+    <div class="insight-card">
+        <span class="insight-label">Total Mentions</span>
+        <div class="insight-value">{{ metrics.total_mentions }}</div>
+    </div>
+    <div class="insight-card">
+        <span class="insight-label">Avg Sentiment</span>
+        <div class="insight-value">{{ "%.0f"|format(metrics.avg_sentiment or 0) }}%</div>
+        <small style="color:#999;">Positive</small>
+    </div>
+    <div class="insight-card">
+        <span class="insight-label">Top Creator</span>
+        <div class="insight-value" style="font-size:1.4rem;">
+            {{ top_creator['channel_name'] if top_creator else "N/A" }}
+        </div>
+    </div>
+    <div class="insight-card">
+        <span class="insight-label">Last Mentioned</span>
+        <div class="insight-value" style="font-size:1.2rem; margin-top:5px;">
+            {{ metrics.last_mentioned[:10] if metrics.last_mentioned else "N/A" }}
+        </div>
+    </div>
+</div>
+
+{% if marketing_brief %}
+<div class="mention-feed">
+    <div style="background: linear-gradient(135deg, #fff5f7 0%, #fff 100%); border:1px solid #fadadd; padding:30px; border-radius:12px; box-shadow: 0 4px 15px rgba(212, 106, 126, 0.08);">
+        <h2 style="font-family:var(--font-serif); margin-top:0; color:var(--primary-color);">✨ AI Marketing Intelligence</h2>
+        <div style="line-height:1.6; color:#444;">
+            {{ marketing_brief | safe }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="mention-feed">
+    <h3 style="font-family:var(--font-serif); margin-bottom:20px; color:#2c3e50; border-bottom:1px solid #eee; padding-bottom:10px;">
+        Discussion History ({{ videos|length }} Videos)
+    </h3>
+
     {% if videos %}
-        <ul class="video-list">
-            {% for v in videos %}
-                <li>
-                    <a href="{{ url_for('video_profile', video_id=v.video_id) }}">
-                        {{ v.title }}
-                    </a>
-                    <span class="small">{{ v.channel_name }}</span>
-                </li>
-            {% endfor %}
-        </ul>
+        {% for v in videos %}
+        <div class="mention-card">
+            {% if v.thumbnail_url %}
+            <a href="/video/{{ v.video_id }}">
+                <img src="{{ v.thumbnail_url }}" alt="Thumbnail" class="mention-thumb">
+            </a>
+            {% else %}
+            <div class="mention-thumb" style="display:flex; align-items:center; justify-content:center; color:#ccc;">No Image</div>
+            {% endif %}
+
+            <div class="mention-content">
+                <div class="mention-header">
+                    <span>{{ v.upload_date[:10] }}</span>
+                    <span>by <a href="#" style="font-weight:600; color:#555;">{{ v.channel_name }}</a></span>
+                </div>
+
+                <a href="/video/{{ v.video_id }}" class="mention-title">{{ v.title }}</a>
+
+                <div style="margin-bottom:10px;">
+                    {% if v.sentiment_score > 70 %}
+                        <span class="sentiment-badge sent-pos">Positive</span>
+                    {% elif v.sentiment_score < 40 %}
+                        <span class="sentiment-badge sent-neg">Negative</span>
+                    {% else %}
+                        <span class="sentiment-badge sent-neu">Neutral</span>
+                    {% endif %}
+                </div>
+
+                <div class="mention-snippet" style="border-left: 3px solid var(--primary-color);">
+                    <strong style="color:var(--primary-color); font-size:11px; text-transform:uppercase; display:block; margin-bottom:4px;">Discussion Context:</strong>
+                    "...{{ v.context }}..."
+                </div>
+
+                <div style="margin-top:8px; text-align:right;">
+                    <a href="/video/{{ v.video_id }}" style="font-size:12px; color:var(--text-muted);">View Full Analysis &rarr;</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
     {% else %}
-        <p>No videos found for this product.</p>
+        <p style="text-align:center; padding:40px; color:#999;">No discussions found.</p>
     {% endif %}
-</section>
 
+</div>
 {% endblock %}
-

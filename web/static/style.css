@@ -308,3 +308,144 @@ body {
   font-size: 14px;
 }
 .autocomplete-item:hover { background: #fff0f5; }
+
+/* --- Product/Entity Profile Styles --- */
+
+.profile-header {
+  background: white;
+  padding: 40px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 30px;
+}
+
+.profile-title {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  margin: 0;
+  color: var(--text-dark);
+}
+
+.profile-meta {
+  color: var(--text-muted);
+  font-size: 1rem;
+  margin-top: 8px;
+}
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto 40px;
+  padding: 0 20px;
+}
+
+.insight-card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #eee;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+  text-align: center;
+}
+
+.insight-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #999;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.insight-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  font-family: var(--font-serif);
+}
+
+/* Mention Feed */
+.mention-feed {
+  max-width: 900px;
+  margin: 0 auto 60px;
+  padding: 0 20px;
+}
+
+.mention-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+  border: 1px solid #f9f9f9;
+  display: flex;
+  gap: 24px;
+  transition: transform 0.2s;
+}
+
+.mention-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--secondary-color);
+}
+
+.mention-thumb {
+  width: 160px;
+  height: 90px;
+  background: #eee;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.mention-content {
+  flex: 1;
+}
+
+.mention-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #888;
+}
+
+.mention-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--text-dark);
+  text-decoration: none;
+  display: block;
+}
+.mention-title:hover { color: var(--primary-color); }
+
+.mention-snippet {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #555;
+  background: #fafafa;
+  padding: 10px;
+  border-radius: 6px;
+  margin-top: 10px;
+}
+
+.sentiment-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+.sent-pos { background: #e6fffa; color: #047857; } /* Green */
+.sent-neu { background: #f3f4f6; color: #4b5563; } /* Grey */
+.sent-neg { background: #fff5f5; color: #c53030; } /* Red */
+
+/* AI Brief Box Styling */
+.mention-feed h3, .mention-feed h2 {
+    font-weight: 700;
+}
+.mention-snippet {
+    font-style: italic;
+    background: #fdfbf7;
+    border: 1px solid #f0f0f0;
+}
