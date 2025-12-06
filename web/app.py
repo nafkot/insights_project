@@ -1,38 +1,28 @@
-# app.py — Insights Project Web Application
-#
-# This file is a modernised version of your old app.py while keeping:
-#   - Same UX flow
-#   - Same DB logic style
-#   - New schema support (brands, products, sponsors)
-#   - LLM-enhanced search
-#   - Channel, Brand, Product profile pages
-#
-# Fully compatible with your ingestion pipeline.
-
 import os
 import sys
 import json
 import sqlite3
-import markdown
-
 from collections import Counter
-from flask import Flask, render_template, request, g, jsonify
+from flask import Flask, render_template, request, g, jsonify, url_for, redirect
 from dotenv import load_dotenv
 from openai import OpenAI
-from flask import Flask, render_template, request, jsonify, url_for, redirect
-from utils.search_engine import answer_user_query
-from utils.autocomplete import hybrid_autocomplete, llm_semantic_suggestions
+import markdown
 
-
+# ------------------------------------------------------------------------------
+# CRITICAL FIX: Add the parent directory to sys.path to allow importing 'utils'
+# ------------------------------------------------------------------------------
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(BASE_DIR)
 
+# --- Local Imports (Must come AFTER the sys.path fix above) ---
+from utils.search_engine import answer_user_query
+from utils.autocomplete import hybrid_autocomplete, llm_semantic_suggestions
 
 load_dotenv()
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
-
+# Ensure DB path is correct relative to where the script is run
 DB_PATH = os.getenv("YOUTUBE_DB", "youtube_insights.db")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -41,7 +31,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # -------------------------------
 # Database Connection
 # -------------------------------
-
 def get_db():
     db = getattr(g, "_database", None)
     if db is None:
@@ -49,18 +38,15 @@ def get_db():
         db.row_factory = sqlite3.Row
     return db
 
-
 @app.teardown_appcontext
 def close_connection(exception):
     db = getattr(g, "_database", None)
     if db is not None:
         db.close()
 
-
 # -------------------------------
 # Template Filters
 # -------------------------------
-
 @app.template_filter("from_json")
 def from_json_filter(value):
     try:
@@ -68,107 +54,76 @@ def from_json_filter(value):
     except:
         return []
 
-
 # -------------------------------
-# Autocomplete Search (Channel, Brand, Product)
+# Context Processor (Navbar Categories)
 # -------------------------------
-
-# -------------------------------
-# LLM Keyword Extractor
-# -------------------------------
-
-def extract_keywords(user_query):
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": "Extract 1-3 search keywords."},
-                {"role": "user", "content": user_query},
-            ],
-            temperature=0,
-        )
-        return resp.choices[0].message.content.strip()
-    except:
-        return user_query
-
-
-# -------------------------------
-# LLM Search Answer Generator
-# -------------------------------
-
-def generate_answer(user_query, segments, is_comparison=False):
-    if not segments:
-        return None
-
-    context = ""
-    channels = set()
-
-    for seg in segments[:40]:
-        channels.add(seg["channel_name"])
-        context += (
-            f"SOURCE: {seg['channel_name']} ({seg['start_time']}s)\n"
-            f"QUOTE: {seg['text']}\n\n"
-        )
-
-    system_prompt = "You are an insights analyst."
-
-    if is_comparison:
-        system_prompt += (
-            "\nCompare these channels strictly based on evidence. "
-            "Cite timestamps. Structure as:\n"
-            "Comparison:\nContrast:\n"
-        )
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": f"Question: {user_query}\n\nEvidence:\n{context}",
-                },
-            ],
-            temperature=0,
-        )
-        return markdown.markdown(resp.choices[0].message.content)
-    except:
-        return None
-
-# --- Context Processor for Navbar ---
 @app.context_processor
 def inject_categories():
-    """Make categories available to base.html for the dropdown menu."""
+    """
+    Injects the full list of YouTube categories into the navbar.
+    Combines DB data with a hardcoded fallback list.
+    """
     try:
+        # 1. Start with the official YouTube category list
+        full_categories = [
+            "Autos & Vehicles",
+            "Comedy",
+            "Education",
+            "Entertainment",
+            "Film & Animation",
+            "Gaming",
+            "Howto & Style",
+            "Music",
+            "News & Politics",
+            "Nonprofits & Activism",
+            "People & Blogs",
+            "Pets & Animals",
+            "Science & Technology",
+            "Sports",
+            "Travel & Events"
+        ]
+
+        # 2. Optionally, check DB for any custom/new ones
         conn = get_db()
-        # Fetch distinct categories that actually have channels
-        rows = conn.execute("SELECT DISTINCT category FROM channels WHERE category IS NOT NULL AND category != '' ORDER BY category").fetchall()
-        categories = [r['category'] for r in rows]
-        
-        # Fallback if DB is empty during dev
-        if not categories:
-            categories = ["Howto & Style", "Entertainment", "Gaming", "Education", "Tech"]
-            
-        return dict(navbar_categories=categories)
-    except Exception:
-        return dict(navbar_categories=[])
+        rows = conn.execute("SELECT DISTINCT category FROM channels WHERE category IS NOT NULL AND category != ''").fetchall()
+        db_cats = [r['category'] for r in rows]
+
+        # Merge and sort unique categories
+        final_cats = sorted(list(set(full_categories + db_cats)))
+
+        return dict(navbar_categories=final_cats)
+
+    except Exception as e:
+        print(f"Error loading categories: {e}")
+        # Fallback if DB fails
+        return dict(navbar_categories=[
+            "Autos & Vehicles", "Comedy", "Education", "Entertainment", "Film & Animation",
+            "Gaming", "Howto & Style", "Music", "News & Politics", "Nonprofits & Activism",
+            "People & Blogs", "Pets & Animals", "Science & Technology", "Sports", "Travel & Events"
+        ])
+
 
 # -------------------------------
-# Homepage Search
+# Routes
 # -------------------------------
 
 @app.route("/", methods=["GET"])
 def home():
-    """Google-style Landing Page (Search Only)."""
+    """
+    Simple Google-style landing page (Search Only).
+    """
     return render_template("home.html")
 
 
 @app.route("/brands", methods=["GET"])
 def brands_hub():
-    """The Beauty Dashboard (formerly home)."""
+    """
+    The main Dashboard for Brands (formerly the home page).
+    Accessed via 'Categories -> Howto & Style -> Brands'.
+    """
     conn = get_db()
 
-    # 1. Trending (Mentions)
+    # 1. Trending (Highest Mention Count)
     trending_sql = """
         SELECT name, 'brand' as type, cnt, id
         FROM (
@@ -183,11 +138,12 @@ def brands_hub():
             FROM products p JOIN product_mentions pm ON p.id = pm.product_id
             GROUP BY p.id
         )
-        ORDER BY cnt DESC LIMIT 10
+        ORDER BY cnt DESC
+        LIMIT 10
     """
     trending = conn.execute(trending_sql).fetchall()
 
-    # 2. Popular (Sentiment)
+    # 2. Popular (Highest Positive Sentiment, min 3 mentions)
     popular_sql = """
         SELECT name, 'brand' as type, score, id
         FROM (
@@ -202,12 +158,18 @@ def brands_hub():
             FROM products p JOIN product_mentions pm ON p.id = pm.product_id
             GROUP BY p.id HAVING c > 2
         )
-        ORDER BY score DESC LIMIT 10
+        ORDER BY score DESC
+        LIMIT 10
     """
     popular = conn.execute(popular_sql).fetchall()
 
-    # 3. Top Channels
-    channels_sql = "SELECT channel_id, title, subscriber_count FROM channels ORDER BY subscriber_count DESC LIMIT 10"
+    # 3. Top Channels (Subscriber Count)
+    channels_sql = """
+        SELECT channel_id, title, subscriber_count
+        FROM channels
+        ORDER BY subscriber_count DESC
+        LIMIT 10
+    """
     channels = conn.execute(channels_sql).fetchall()
 
     return render_template(
@@ -217,124 +179,116 @@ def brands_hub():
         channels=channels
     )
 
+
 @app.route("/search", methods=["GET"])
 def search():
     query = request.args.get("q", "").strip()
+
+    # If empty query, redirect to home
     if not query:
         return redirect(url_for("home"))
 
-    return redirect(url_for("home", q=query))
+    conn = get_db()
+    videos = []
 
+    # Simple title match search
+    # (Enhanced semantic search happens in the 'ai_answer' logic below)
+    rows = conn.execute(
+        "SELECT video_id, title, channel_name, thumbnail_url FROM videos WHERE title LIKE ? ORDER BY upload_date DESC LIMIT 30",
+        (f"%{query}%",)
+    ).fetchall()
 
-# -------------------------------
-# CHANNEL PROFILE PAGE
-# -------------------------------
+    for row in rows:
+        videos.append({
+            "video_id": row["video_id"],
+            "title": row["title"],
+            "channel_name": row["channel_name"],
+            "thumbnail_url": row["thumbnail_url"]
+        })
+
+    # Generate AI Answer using utils
+    ai_answer = answer_user_query(query)
+
+    return render_template(
+        "search.html",
+        query=query,
+        videos=videos,
+        ai_answer=ai_answer
+    )
+
 
 @app.route("/channel/<channel_id>")
 def channel_profile(channel_id):
     conn = get_db()
-
-    channel = conn.execute(
-        "SELECT * FROM channels WHERE channel_id = ?",
-        (channel_id,),
-    ).fetchone()
-
+    channel = conn.execute("SELECT * FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
     if not channel:
         return "Channel not found", 404
 
-    videos = conn.execute(
-        "SELECT * FROM videos WHERE channel_id = ? ORDER BY upload_date DESC",
-        (channel_id,),
-    ).fetchall()
+    videos = conn.execute("SELECT * FROM videos WHERE channel_id = ? ORDER BY upload_date DESC", (channel_id,)).fetchall()
 
-    topics = []
-    brand_list = []
-    product_list = []
-    sponsor_list = []
+    # Basic aggregations for the profile page
+    brand_counts = Counter()
+    product_counts = Counter()
+    sponsor_counts = Counter()
+    topics_list = []
     sentiments = []
 
     for v in videos:
-        if v["topics"]:
-            topics.extend(v["topics"].split(","))
+        if v["topics"]: topics_list.extend(v["topics"].split(","))
 
-        # Brand JSON
-        if v["brands"]:
-            brand_list.extend(json.loads(v["brands"]))
+        # Load JSON fields safely
+        try:
+            if v["brands"]: brand_counts.update(json.loads(v["brands"]))
+            if v["products"]: product_counts.update([p.get("product") for p in json.loads(v["products"])])
+            if v["sponsors"]: sponsor_counts.update(json.loads(v["sponsors"]))
+        except:
+            pass
 
-        # Product JSON
-        if v["products"]:
-            product_list.extend(json.loads(v["products"]))
-
-        # Sponsor JSON
-        if v["sponsors"]:
-            sponsor_list.extend(json.loads(v["sponsors"]))
-
-        # Sentiment → numeric
-        if "Positive" in v["overall_sentiment"]:
-            sentiments.append(100)
-        elif "Negative" in v["overall_sentiment"]:
-            sentiments.append(0)
-        else:
-            sentiments.append(50)
+        # Sentiment calc
+        s = (v["overall_sentiment"] or "").lower()
+        if "positive" in s: sentiments.append(100)
+        elif "negative" in s: sentiments.append(0)
+        else: sentiments.append(50)
 
     stats = {
-        "top_topics": [x[0] for x in Counter(topics).most_common(10)],
-        "top_brands": [x[0] for x in Counter(brand_list).most_common(20)],
-        "top_products": [x[0] for x in Counter([p["product"] for p in product_list]).most_common(20)],
-        "top_sponsors": [x[0] for x in Counter(sponsor_list).most_common(10)],
-        "sentiment_avg": sum(sentiments) / len(sentiments) if sentiments else 50,
+        "top_topics": [t[0] for t in Counter(topics_list).most_common(10)],
+        "top_brands": [b[0] for b in brand_counts.most_common(10)],
+        "top_products": [p[0] for p in product_counts.most_common(10)],
+        "top_sponsors": [s[0] for s in sponsor_counts.most_common(10)],
+        "brand_count": len(brand_counts),
+        "product_count": len(product_counts),
+        "sponsor_count": len(sponsor_counts),
+        "video_count": len(videos),
+        "sentiment_avg": sum(sentiments)/len(sentiments) if sentiments else 50
     }
 
-    return render_template(
-        "channel_profile.html",
-        channel=channel,
-        videos=videos,
-        stats=stats,
-    )
+    return render_template("channel_profile.html", channel=channel, videos=videos, stats=stats)
 
-
-# -------------------------------
-# BRAND PROFILE PAGE
-# -------------------------------
 
 @app.route("/brand/<brand_id>")
 def brand_profile(brand_id):
     conn = get_db()
-
+    # Support lookup by ID (integer) or potentially name (string) if you expand logic
     brand = conn.execute("SELECT * FROM brands WHERE id = ?", (brand_id,)).fetchone()
     if not brand:
         return "Brand not found", 404
 
-    mentions = conn.execute(
-        """
-        SELECT v.title, v.channel_name, bm.first_seen_date, bm.sentiment_score
+    mentions = conn.execute("""
+        SELECT v.title, v.channel_name, v.video_id, bm.first_seen_date, bm.sentiment_score
         FROM brand_mentions bm
         JOIN videos v ON bm.video_id = v.video_id
         WHERE bm.brand_id = ?
         ORDER BY bm.first_seen_date DESC
-        """,
-        (brand_id,),
-    ).fetchall()
+    """, (brand_id,)).fetchall()
 
-    return render_template(
-        "brand_profile.html",
-        brand=brand,
-        mentions=mentions,
-    )
+    return render_template("brand_profile.html", brand=brand, mentions=mentions)
 
 
-# -------------------------------
-# PRODUCT PROFILE PAGE
-# -------------------------------
 @app.route("/product/<int:product_id>")
 def product_profile(product_id):
     conn = get_db()
-
-    # Fetch product record
     product = conn.execute("""
-        SELECT
-            p.id, p.name,
-            b.id AS brand_id, b.name AS brand_name
+        SELECT p.id, p.name, b.id AS brand_id, b.name AS brand_name
         FROM products p
         LEFT JOIN brands b ON p.brand_id = b.id
         WHERE p.id = ?
@@ -343,40 +297,22 @@ def product_profile(product_id):
     if not product:
         return "Product not found", 404
 
-    # Aggregate metrics
-    metrics = conn.execute(
-        """
-        SELECT
-            COUNT(*) as total_mentions,
-            COUNT(DISTINCT channel_id) as unique_channels,
-            AVG(sentiment_score) as avg_sentiment
+    metrics = conn.execute("""
+        SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels, AVG(sentiment_score) as avg_sentiment
         FROM product_mentions
         WHERE product_id = ?
-        """,
-        (product_id,)
-    ).fetchone()
+    """, (product_id,)).fetchone()
 
-    # Videos
-    videos = conn.execute(
-        """
+    videos = conn.execute("""
         SELECT v.video_id, v.title, v.channel_name
         FROM product_mentions pm
         JOIN videos v ON v.video_id = pm.video_id
         WHERE pm.product_id = ?
-        ORDER BY pm.mention_count DESC
-        LIMIT 20
-        """,
-        (product_id,)
-    ).fetchall()
+        ORDER BY pm.mention_count DESC LIMIT 20
+    """, (product_id,)).fetchall()
 
-    conn.close()
+    return render_template("product_profile.html", product=product, metrics=metrics, videos=videos)
 
-    return render_template(
-        "product_profile.html",
-        product=product,
-        metrics=metrics,
-        videos=videos,
-    )
 
 @app.route("/autocomplete")
 def autocomplete():
@@ -388,64 +324,45 @@ def autocomplete():
         "brands": [],
         "products": [],
         "sponsors": [],
-        "semantic": []  # new group for LLM suggestions
+        "semantic": []
     }
 
     if not query:
         return jsonify(results)
 
+    # Helper for LIKE queries
+    def get_matches(table, col_id, col_name, limit=5):
+        q_str = f"%{query}%"
+        return conn.execute(f"SELECT {col_id}, {col_name} FROM {table} WHERE lower({col_name}) LIKE ? LIMIT ?", (q_str, limit)).fetchall()
+
     # Channels
-    rows = conn.execute(
-        "SELECT channel_id, title FROM channels WHERE lower(title) LIKE ? LIMIT 10",
-        (f"%{query}%",)
-    ).fetchall()
-    results["channels"] = [{"id": r["channel_id"], "name": r["title"]} for r in rows]
+    for r in get_matches("channels", "channel_id", "title"):
+        results["channels"].append({"id": r[0], "name": r[1]})
 
     # Brands
-    rows = conn.execute(
-        "SELECT id, name FROM brands WHERE lower(name) LIKE ? LIMIT 10",
-        (f"%{query}%",)
-    ).fetchall()
-    results["brands"] = [{"id": r["id"], "name": r["name"]} for r in rows]
+    for r in get_matches("brands", "id", "name"):
+        results["brands"].append({"id": r[0], "name": r[1]})
 
     # Products
-    rows = conn.execute(
-        "SELECT id, name FROM products WHERE lower(name) LIKE ? LIMIT 10",
-        (f"%{query}%",)
-    ).fetchall()
-    results["products"] = [{"id": r["id"], "name": r["name"]} for r in rows]
+    for r in get_matches("products", "id", "name"):
+        results["products"].append({"id": r[0], "name": r[1]})
 
     # Sponsors
-    rows = conn.execute(
-        "SELECT id, name FROM sponsors WHERE lower(name) LIKE ? LIMIT 10",
-        (f"%{query}%",)
-    ).fetchall()
-    results["sponsors"] = [{"id": r["id"], "name": r["name"]} for r in rows]
+    for r in get_matches("sponsors", "id", "name"):
+        results["sponsors"].append({"id": r[0], "name": r[1]})
 
-    conn.close()
-
-    # Count total DB hits
-    total_hits = (
-        len(results["channels"]) +
-        len(results["brands"]) +
-        len(results["products"]) +
-        len(results["sponsors"])
-    )
-
-    # HYBRID MODE B:
-    # If DB results are weak (<3), call LLM for semantic predictions.
+    # Hybrid Fallback: If minimal DB results, use LLM
+    total_hits = sum(len(v) for v in results.values())
     if total_hits < 3:
         semantic_suggestions = llm_semantic_suggestions(query)
+        # Tag these so frontend knows they are AI guesses, not DB records
         results["semantic"] = [{"id": None, "name": s} for s in semantic_suggestions]
 
     return jsonify(results)
 
 
-
 # -------------------------------
 # Run Server
 # -------------------------------
-
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-
