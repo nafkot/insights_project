@@ -171,30 +171,31 @@ def brand_profile(brand_id):
     brand = conn.execute("SELECT * FROM brands WHERE id = ?", (brand_id,)).fetchone()
     if not brand: return "Brand not found", 404
 
-    # 1. Metrics
+    # Metrics
     metrics = conn.execute("""
         SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels,
                AVG(sentiment_score) as avg_sentiment, MAX(first_seen_date) as last_mentioned
         FROM brand_mentions WHERE brand_id = ?
     """, (brand_id,)).fetchone()
 
-    # 2. Top Creator
+    # Top Creator
     top_creator = conn.execute("""
         SELECT channel_name, COUNT(*) as cnt FROM brand_mentions bm
         JOIN videos v ON bm.video_id = v.video_id WHERE bm.brand_id = ?
         GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1
     """, (brand_id,)).fetchone()
 
-    # 3. Top Products for this Brand
+    # --- CHANGE: Removed LIMIT 5 to show ALL products for this brand ---
     top_products = conn.execute("""
-        SELECT p.id, p.name, COUNT(*) as cnt, AVG(pm.sentiment_score) as score
+        SELECT p.id, p.name, COUNT(pm.id) as cnt, AVG(pm.sentiment_score) as score
         FROM products p
-        JOIN product_mentions pm ON p.id = pm.product_id
+        LEFT JOIN product_mentions pm ON p.id = pm.product_id
         WHERE p.brand_id = ?
-        GROUP BY p.id ORDER BY cnt DESC LIMIT 5
+        GROUP BY p.id
+        ORDER BY cnt DESC
     """, (brand_id,)).fetchall()
 
-    # 4. Videos & Context
+    # Videos
     videos_rows = conn.execute("""
         SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
                bm.mention_count, bm.sentiment_score
@@ -207,23 +208,18 @@ def brand_profile(brand_id):
     llm_input = []
     for row in videos_rows:
         vid = dict(row)
-        # Find context snippet for BRAND name
         matches = conn.execute("SELECT text FROM video_segments WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3", (vid['video_id'], f"%{brand['name'].lower()}%")).fetchall()
         snippet = " ... ".join([m['text'] for m in matches]) if matches else "Brand mentioned in video."
-
         vid['raw_snippet'] = snippet
         llm_input.append({"video_id": vid['video_id'], "date": vid['upload_date'], "text": snippet})
         videos.append(vid)
 
-    # 5. Intelligence
     intelligence = get_brand_intelligence(conn, brand_id, brand['name'], llm_input, metrics['last_mentioned'])
-
     final_videos = []
     for v in videos:
         v['display_summary'] = intelligence.get('video_summaries', {}).get(v['video_id'], v['raw_snippet'])
         final_videos.append(v)
 
-    # 6. Chart Data
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM brand_mentions WHERE brand_id = ? GROUP BY day ORDER BY day ASC", (brand_id,)).fetchall()
 
     return render_template("brand_profile.html", brand=brand, metrics=metrics, top_creator=top_creator,
@@ -294,16 +290,43 @@ def autocomplete():
 def brands_directory():
     conn = get_db()
 
-    # Fetch all brands ordered by name
+    # Sort by Mentions DESC, then Name
+    # Also count distinct products per brand
     brands = conn.execute("""
-        SELECT b.id, b.name, b.category, COUNT(bm.id) as mention_count
+        SELECT
+            b.id,
+            b.name,
+            b.category,
+            COUNT(DISTINCT bm.id) as mention_count,
+            COUNT(DISTINCT p.id) as product_count
         FROM brands b
         LEFT JOIN brand_mentions bm ON b.id = bm.brand_id
+        LEFT JOIN products p ON b.id = p.brand_id
         GROUP BY b.id
-        ORDER BY b.name ASC
+        ORDER BY mention_count DESC, b.name ASC
     """).fetchall()
 
     return render_template("brands_list.html", brands=brands)
+
+@app.route("/products/all")
+def products_directory():
+    conn = get_db()
+
+    # List products with Brand Name, ordered by mentions
+    products = conn.execute("""
+        SELECT
+            p.id,
+            p.name,
+            b.name as brand_name,
+            COUNT(pm.id) as mention_count
+        FROM products p
+        LEFT JOIN product_mentions pm ON p.id = pm.product_id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        GROUP BY p.id
+        ORDER BY mention_count DESC, p.name ASC
+    """).fetchall()
+
+    return render_template("products_list.html", products=products)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
