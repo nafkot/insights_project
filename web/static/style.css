@@ -1,11 +1,7 @@
-/* web/static/style.css */
-
-/* ... (Keep existing root variables and basic styles) ... */
-
 :root {
-  --bg-color: #fdfbf7;
-  --primary-color: #d46a7e;
-  --secondary-color: #fadadd;
+  --bg-color: #fdfbf7;         /* Warm/Cream white */
+  --primary-color: #d46a7e;    /* Rose Gold/Dark Pink */
+  --secondary-color: #fadadd;  /* Light Blush */
   --text-dark: #2c3e50;
   --text-muted: #7f8c8d;
   --card-shadow: 0 10px 20px rgba(212, 106, 126, 0.08);
@@ -60,18 +56,22 @@ body {
   cursor: pointer;
   font-weight: 500;
   font-size: 14px;
-  color: var(--text-dark);
+  color: var(--primary-color); /* Matches your screenshot */
 }
 
-.nav-item:hover { color: var(--primary-color); }
+.nav-item:hover { color: var(--text-dark); }
 
 .dropdown-content {
   display: none;
   position: absolute;
   top: 100%;
-  left: 0;
+
+  /* FIX: Align to the RIGHT edge of the parent, not the left */
+  right: 0;
+  left: auto;
+
   background-color: #ffffff;
-  min-width: 200px;
+  min-width: 220px;
   box-shadow: 0 8px 16px rgba(0,0,0,0.1);
   border-radius: 0 0 8px 8px;
   border: 1px solid #eee;
@@ -83,25 +83,30 @@ body {
   display: block;
 }
 
-/* Submenu logic */
+/* Dropdown Items */
 .dropdown-item {
   position: relative;
-  padding: 10px 20px;
+  padding: 12px 20px;
   color: var(--text-dark);
   display: block;
   text-decoration: none;
   font-size: 14px;
+  transition: background 0.2s;
 }
 .dropdown-item:hover {
   background-color: #fff0f5;
   color: var(--primary-color);
 }
 
-/* Nested Submenu (for Brands under Howto & Style) */
+/* --- Submenu Logic (The Critical Fix) --- */
 .has-submenu .submenu {
   display: none;
   position: absolute;
-  left: 100%;
+
+  /* FIX: Open to the LEFT of the dropdown, so it stays on screen */
+  right: 100%;
+  left: auto;
+
   top: 0;
   background-color: #ffffff;
   min-width: 180px;
@@ -109,9 +114,20 @@ body {
   border: 1px solid #eee;
   border-radius: 8px;
   padding: 8px 0;
+  margin-right: 5px; /* Slight gap */
 }
+
 .has-submenu:hover .submenu {
   display: block;
+}
+
+/* Indicator arrow for items with submenus */
+.has-submenu::after {
+    content: "‹"; /* Left pointing arrow since menu opens left */
+    position: absolute;
+    right: 15px;
+    font-size: 16px;
+    color: #ccc;
 }
 
 
@@ -122,12 +138,12 @@ body {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding-bottom: 100px; /* Visual balance */
+  padding-bottom: 100px;
 }
 
 .home-logo-large {
   font-family: var(--font-serif);
-  font-size: 4rem;
+  font-size: 5rem;
   font-weight: 700;
   margin-bottom: 40px;
   color: var(--text-dark);
@@ -136,58 +152,159 @@ body {
 
 .home-search-box {
   width: 100%;
-  max-width: 600px;
+  max-width: 650px;
   position: relative;
 }
 
 .home-search-input {
   width: 100%;
-  padding: 16px 24px;
+  padding: 18px 30px;
   font-size: 18px;
   border: 1px solid #dfe1e5;
-  border-radius: 24px;
+  border-radius: 30px;
   outline: none;
-  box-shadow: 0 1px 6px rgba(32,33,36,0.28);
+  box-shadow: 0 1px 6px rgba(32,33,36,0.1);
   transition: box-shadow 0.2s;
+  box-sizing: border-box;
 }
 .home-search-input:hover, .home-search-input:focus {
-  box-shadow: 0 2px 8px rgba(32,33,36,0.4);
-  border-color: rgba(223,225,229,0);
+  box-shadow: 0 2px 12px rgba(212, 106, 126, 0.2);
+  border-color: var(--secondary-color);
 }
 
 
-/* --- Original Styles reused for Brands Landing --- */
-.beauty-hero { /* ... keep previous styles ... */
+/* --- Brands Landing Page Styles --- */
+.beauty-hero {
   text-align: center;
   padding: 60px 20px;
   background: linear-gradient(180deg, #fff0f5 0%, var(--bg-color) 100%);
   margin-bottom: 40px;
 }
-.beauty-hero h1 { font-family: var(--font-serif); font-size: 3rem; margin: 0 0 10px; }
-.beauty-hero p { color: #666; }
+.beauty-hero h1 {
+  font-family: var(--font-serif);
+  font-size: 3rem;
+  margin: 0 0 10px;
+  color: var(--text-dark);
+}
+.beauty-hero p {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
 
-.top-lists-container { /* ... keep previous styles ... */
+.search-wrapper {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  max-width: 900px;
+  margin: 40px auto 0;
+  flex-wrap: wrap;
+}
+
+.search-group {
+  position: relative;
+  flex: 1;
+  min-width: 300px;
+  text-align: left;
+}
+
+.search-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 15px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+  outline: none;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+.search-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(212, 106, 126, 0.1);
+}
+
+/* --- Ranking Columns --- */
+.top-lists-container {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 30px;
   max-width: 1200px;
-  margin: 0 auto 60px;
+  margin: 0 auto 80px;
   padding: 0 20px;
 }
+
 .list-card {
   background: #fff;
+  border-radius: 12px;
   padding: 24px;
-  border-radius: 16px;
   box-shadow: var(--card-shadow);
+  border: 1px solid #fff;
 }
-.ranking-list { list-style: none; padding: 0; }
-.ranking-item {
-  display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed #eee;
-}
-.rank-number { font-weight: bold; color: var(--primary-color); margin-right: 10px;}
 
-/* Utils */
-.search-wrapper { display: flex; gap: 20px; justify-content: center; margin-top: 30px;}
-.search-group { text-align: left; }
-.search-label { font-size: 12px; font-weight: bold; color: var(--primary-color); text-transform: uppercase; margin-bottom: 5px; display: block;}
-.search-input { padding: 12px; border-radius: 8px; border: 1px solid #ddd; width: 280px; }
+.list-card h2 {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  margin-top: 0;
+  margin-bottom: 4px;
+  color: var(--text-dark);
+}
+
+.ranking-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ranking-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px dashed #eee;
+  font-size: 15px;
+}
+.ranking-item:last-child { border-bottom: none; }
+
+.rank-number {
+  color: var(--primary-color);
+  font-weight: 700;
+  margin-right: 12px;
+  width: 20px;
+  font-family: var(--font-serif);
+}
+
+.rank-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-dark);
+}
+.rank-name:hover { text-decoration: underline; }
+
+/* Autocomplete Box generic style */
+.autocomplete-box {
+  background: white;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  margin-top: 6px;
+  overflow: hidden;
+  z-index: 1000;
+}
+.autocomplete-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #fafafa;
+  font-size: 14px;
+}
+.autocomplete-item:hover { background: #fff0f5; }

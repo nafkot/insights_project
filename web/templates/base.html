@@ -2,203 +2,52 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>YouTube Insights</title>
+    <title>Insights</title>
+
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    <style>
-        /* Autocomplete container */
-        .autocomplete-box {
-            position: absolute;
-            top: 42px;
-            left: 0;
-            width: 100%;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            max-height: 260px;
-            overflow-y: auto;
-            display: none;
-            z-index: 1000;
-        }
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
-        .autocomplete-item {
-            padding: 8px 12px;
-            cursor: pointer;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
-        .autocomplete-item:hover {
-            background: #f5f5f5;
-        }
-
-        .autocomplete-section-title {
-            padding: 6px 10px;
-            font-size: 12px;
-            font-weight: bold;
-            background: #fafafa;
-            border-bottom: 1px solid #ddd;
-            color: #777;
-        }
-
-        .search-container {
-            position: relative;
-            width: 380px;
-        }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body>
-    <header>
-        <div class="logo" onclick="window.location='/'">
-            <h2>Insights</h2>
-        </div>
 
-        <div class="search-container">
-            <form id="searchForm" action="/search" method="get">
-                <input type="text" id="searchInput" name="q" placeholder="Search channels, brands, products…" autocomplete="off">
-            </form>
+    <header class="app-header">
+        <a href="/" class="logo">Insights <span>.</span></a>
 
-            <!-- Autocomplete Results -->
-            <div id="autocompleteBox" class="autocomplete-box"></div>
-        </div>
+        <nav class="nav-menu">
+            <div class="nav-item">
+                Categories
+                <div class="dropdown-content">
+                    {% for cat in navbar_categories %}
+                        {% if cat == "Howto & Style" %}
+                            <div class="dropdown-item has-submenu">
+                                {{ cat }}
+                                <div class="submenu">
+                                    <a href="{{ url_for('brands_hub') }}" class="dropdown-item">Brands</a>
+                                </div>
+                            </div>
+                        {% else %}
+                            <a href="#" class="dropdown-item">{{ cat }}</a>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if "Howto & Style" not in navbar_categories %}
+                         <div class="dropdown-item has-submenu">
+                                Howto & Style
+                                <div class="submenu">
+                                    <a href="{{ url_for('brands_hub') }}" class="dropdown-item">Brands</a>
+                                </div>
+                         </div>
+                    {% endif %}
+                </div>
+            </div>
+        </nav>
     </header>
 
     {% block content %}{% endblock %}
 
-<script>
-// DOM elements
-const searchInput = document.getElementById("searchInput");
-const autoBox = document.getElementById("autocompleteBox");
-const searchForm = document.getElementById("searchForm");
-
-// Cancel token for rapid multiple requests
-let autoFetchController = null;
-
-// Debounce function
-function debounce(func, delay = 200) {
-    let timer;
-    return (...args) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => func.apply(this, args), delay);
-    };
-}
-
-// Fetch autocomplete suggestions
-async function fetchAutocomplete(query) {
-    if (!query) {
-        autoBox.style.display = "none";
-        return;
-    }
-
-    try {
-        if (autoFetchController) autoFetchController.abort();
-        autoFetchController = new AbortController();
-
-        const res = await fetch(`/autocomplete?q=${encodeURIComponent(query)}`, {
-            signal: autoFetchController.signal
-        });
-
-        if (!res.ok) return;
-
-        const data = await res.json();
-        renderAutocomplete(data);
-
-    } catch (err) {
-        // Ignore abort errors
-    }
-}
-
-const debouncedAutocomplete = debounce(fetchAutocomplete, 180);
-
-// Render dropdown
-// Render dropdown
-    function renderAutocomplete(data) {
-        let html = "";
-
-        function renderSection(title, items, type) {
-            if (!items || items.length === 0) return;
-
-            html += `<div class="autocomplete-section-title">${title}</div>`;
-
-            items.forEach(item => {
-                // Check if this is a semantic (LLM) suggestion
-                let extraBadge = "";
-                let itemClass = "autocomplete-item";
-
-                if (type === "semantic") {
-                    // Style specifically for "No Data Available"
-                    extraBadge = `<span style="font-size: 0.75em; color: #999; border: 1px solid #eee; border-radius: 4px; padding: 2px 6px; margin-left: 10px; float: right;">No Data Available</span>`;
-                    itemClass += " semantic-item";
-                }
-
-                html += `
-                    <div class="${itemClass}"
-                         onclick="selectSuggestion('${type}', '${item.id}', '${(item.name || "").replace(/'/g, "")}')">
-                        ${item.name}
-                        ${extraBadge}
-                    </div>`;
-            });
-        }
-
-        renderSection("Channels", data.channels, "channel");
-        renderSection("Brands", data.brands, "brand");
-        renderSection("Products", data.products, "product");
-        renderSection("Sponsors", data.sponsors, "sponsor");
-
-        // This section will now appear with the "No Data Available" tags
-        renderSection("Suggestions (Not in DB)", data.semantic, "semantic");
-
-        if (!html) {
-            autoBox.style.display = "none";
-            return;
-        }
-
-        autoBox.innerHTML = html;
-        autoBox.style.display = "block";
-    }
-
-
-// Handle click on suggestion
-function selectSuggestion(type, id, name) {
-    if (type === "channel") {
-        window.location = `/channel/${id}`;
-    } else if (type === "brand") {
-        window.location = `/brand/${id}`;
-    } else if (type === "product") {
-        window.location = `/product/${id}`;
-    } else if (type === "sponsor") {
-        window.location = `/sponsor/${id}`;
-    } else if (type === "semantic") {
-        // Semantic suggestions don't have IDs. Use them as search queries.
-        searchInput.value = name;
-        autoBox.style.display = "none";
-        searchForm.submit();
-        return;
-    } else {
-        // Fallback: treat as plain query
-        searchInput.value = name;
-        autoBox.style.display = "none";
-        searchForm.submit();
-        return;
-    }
-
-    autoBox.style.display = "none";
-}
-
-
-// Hide dropdown when clicking outside
-document.addEventListener("click", (e) => {
-    if (!searchInput.contains(e.target) && !autoBox.contains(e.target)) {
-        autoBox.style.display = "none";
-    }
-});
-
-// Trigger autocomplete
-searchInput.addEventListener("input", () => {
-    debouncedAutocomplete(searchInput.value.trim());
-});
-</script>
-
 </body>
 </html>
-
