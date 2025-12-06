@@ -21,14 +21,28 @@
 </div>
 
 <div class="top-lists-container">
+
     <div class="list-card">
         <h2>Trending Now</h2>
         <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest mention volume</p>
+
+        <div style="font-weight:700; color:#2c3e50; margin:15px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Brands</div>
         <ul class="ranking-list">
-            {% for item in trending %}
+            {% for item in trending_brands %}
             <li class="ranking-item">
                 <span class="rank-number">{{ loop.index }}</span>
-                <a href="/{{ item['type'] }}/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
+                <a href="/brand/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
+                <small style="color:#777">{{ item['cnt'] }}</small>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div style="font-weight:700; color:#2c3e50; margin:25px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Products</div>
+        <ul class="ranking-list">
+            {% for item in trending_products %}
+            <li class="ranking-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <a href="/product/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
                 <small style="color:#777">{{ item['cnt'] }}</small>
             </li>
             {% endfor %}
@@ -38,11 +52,24 @@
     <div class="list-card">
         <h2>Fan Favorites</h2>
         <p style="color:#999; font-size:12px; margin-bottom:15px;">Highest positive sentiment</p>
+
+        <div style="font-weight:700; color:#2c3e50; margin:15px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Brands</div>
         <ul class="ranking-list">
-            {% for item in popular %}
+            {% for item in popular_brands %}
             <li class="ranking-item">
                 <span class="rank-number">{{ loop.index }}</span>
-                <a href="/{{ item['type'] }}/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
+                <a href="/brand/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
+                <small style="color:#777">{{ "%.0f"|format(item['score']) }}%</small>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div style="font-weight:700; color:#2c3e50; margin:25px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #eee; padding-bottom:4px;">Products</div>
+        <ul class="ranking-list">
+            {% for item in popular_products %}
+            <li class="ranking-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <a href="/product/{{ item['id'] }}" class="rank-name">{{ item['name'] }}</a>
                 <small style="color:#777">{{ "%.0f"|format(item['score']) }}%</small>
             </li>
             {% endfor %}
@@ -57,7 +84,9 @@
                 {% for ch in channels %}
                 <li class="ranking-item">
                     <span class="rank-number">{{ loop.index }}</span>
-                    <a href="/channel/{{ ch['channel_id'] }}" class="rank-name">{{ ch['title'] }}</a>
+                    <a href="/channel/{{ ch['channel_id'] }}" class="rank-name">
+                        {{ ch['title'] }}
+                    </a>
                     <small style="color:#777">{{ "{:,}".format(ch['subscriber_count']) }}</small>
                 </li>
                 {% endfor %}
@@ -68,6 +97,7 @@
             {% endif %}
         </ul>
     </div>
+
 </div>
 
 <script>

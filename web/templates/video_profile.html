@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="beauty-hero" style="text-align:left; padding: 40px;">
+    <h1 style="font-size: 2rem; margin-bottom: 10px;">{{ video.title }}</h1>
+    <p style="color: #666;">
+        <a href="/channel/{{ video.channel_id }}" style="font-weight:bold; color:var(--primary-color);">
+            {{ video.channel_name }}
+        </a> 
+        • Uploaded: {{ video.upload_date }}
+    </p>
+</div>
+
+<div class="top-lists-container" style="grid-template-columns: 2fr 1fr;">
+    
+    <div style="display:flex; flex-direction:column; gap:30px;">
+        <div class="list-card" style="padding:0; overflow:hidden;">
+            <iframe width="100%" height="450" src="https://www.youtube.com/embed/{{ video.video_id }}" frameborder="0" allowfullscreen style="display:block;"></iframe>
+        </div>
+
+        <div class="list-card">
+            <h2>AI Summary</h2>
+            <p style="line-height:1.6; color:#444;">{{ video.overall_summary or "No summary available." }}</p>
+            
+            <div style="margin-top:20px;">
+                <span style="background:var(--secondary-color); color:var(--text-dark); padding:6px 12px; border-radius:20px; font-size:13px; font-weight:600;">
+                    Sentiment: {{ video.overall_sentiment }}
+                </span>
+            </div>
+        </div>
+        
+        <div class="list-card">
+            <h2>Transcript</h2>
+            <div style="max-height: 300px; overflow-y: auto; background: #fafafa; padding: 15px; border-radius: 8px; font-size: 14px; line-height: 1.6;">
+                {% for s in segments %}
+                    <p style="margin-bottom:8px;">
+                        <strong style="color:var(--primary-color);">{{ "%.0f"|format(s.start_time) }}s:</strong> 
+                        {{ s.text }}
+                    </p>
+                {% else %}
+                    <p>No transcript available.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:30px;">
+        
+        <div class="list-card">
+            <h2>Brands Mentioned</h2>
+            {% if brands %}
+                <ul class="ranking-list">
+                {% for b in brands %}
+                    <li class="ranking-item">
+                        <a href="/brand/{{ b.id }}" class="rank-name">{{ b.name }}</a>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color:#999; font-style:italic;">No brands detected.</p>
+            {% endif %}
+        </div>
+
+        <div class="list-card">
+            <h2>Products Mentioned</h2>
+             {% if products %}
+                <ul class="ranking-list">
+                {% for p in products %}
+                    <li class="ranking-item">
+                        <a href="/product/{{ p.id }}" class="rank-name">{{ p.name }}</a>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color:#999; font-style:italic;">No products detected.</p>
+            {% endif %}
+        </div>
+        
+        <div class="list-card">
+            <h2>Topics</h2>
+            {% if video.topics %}
+                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                {% for t in video.topics.split(',') %}
+                    <span style="background:#eee; padding:4px 10px; border-radius:15px; font-size:12px; color:#555;">{{ t }}</span>
+                {% endfor %}
+                </div>
+            {% else %}
+                <p style="color:#999;">No topics extracted.</p>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+{% endblock %}

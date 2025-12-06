@@ -2,13 +2,13 @@
 import sqlite3
 from config import DB_PATH
 
-
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("PRAGMA foreign_keys = ON")
 
     # Channels
+    # Added: platform (defaults to YouTube), avatar_url
     c.execute("""
         CREATE TABLE IF NOT EXISTS channels (
             channel_id TEXT PRIMARY KEY,
@@ -19,7 +19,9 @@ def init_db():
             view_count INTEGER,
             creation_date TEXT,
             category TEXT,
-            thumbnail_url TEXT
+            thumbnail_url TEXT,
+            platform TEXT DEFAULT 'YouTube',
+            avatar_url TEXT
         )
     """)
 
@@ -116,6 +118,7 @@ def init_db():
     """)
 
     # Products
+    # Added: brand_id foreign key
     c.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,7 +127,7 @@ def init_db():
             brand_name TEXT,
             meta TEXT,
             brand_id INTEGER,
-            FOREIGN KEY(brand_id) REFERENCES brands(id),
+            FOREIGN KEY(brand_id) REFERENCES brands(id)
         )
     """)
 
@@ -168,8 +171,8 @@ def init_db():
         )
     """)
 
-    c.execute(
-        """
+    # Extraction cache (avoids re-running LLM on same transcript)
+    c.execute("""
         CREATE TABLE IF NOT EXISTS video_extraction_cache (
             video_id TEXT PRIMARY KEY,
             transcript_hash TEXT,
@@ -179,8 +182,7 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
-        """
-    )
+    """)
 
     conn.commit()
     conn.close()
@@ -189,4 +191,3 @@ def init_db():
 
 if __name__ == "__main__":
     init_db()
-

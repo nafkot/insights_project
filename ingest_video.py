@@ -9,7 +9,7 @@ from ingestion.extraction import extract_entities_for_video
 from config import DB_PATH
 from llm_ingest import analyze_transcript
 from ingestion.transcript_pipeline import get_transcript_segments
-from ingestion.youtube_client import get_authenticated_service, get_video_metadata
+# Added get_channel_details to imports
 from ingestion.youtube_client import get_authenticated_service, get_video_metadata, get_channel_details
 
 
@@ -129,6 +129,8 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
     c = conn.cursor()
 
     try:
+        # --- NEW BLOCK: Upsert Channel Data ---
+        # Fetch detailed channel stats (subscribers, avatar, etc.)
         try:
             yt = get_authenticated_service()
             ch_data = get_channel_details(yt, video_meta["channel_id"])
@@ -157,9 +159,12 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
                     ch_data["thumbnail_url"],
                     "YouTube"
                 ))
+                # CRITICAL FIX: Commit immediately to release the lock
+                conn.commit()
         except Exception as e:
             print(f"[WARN] Could not update channel details: {e}")
-        
+        # --------------------------------------
+
         # 1) LLM ingestion analysis
         text = _segments_to_text(transcript_segments or [])
         analysis = analyze_transcript(
@@ -169,11 +174,12 @@ def save_video_to_db(video_meta: Dict[str, Any], transcript_segments) -> None:
         )
 
         # Deterministic brand/product/sponsor extraction with caching
+        # This function opens its OWN connection, so the previous transaction must be committed.
         brands, products, sponsors = extract_entities_for_video(
             video_meta["id"],
             transcript_segments or [],
         )
-        
+
         topics = analysis.get("topics", []) or []
 
         topics_str = ",".join(topics) if isinstance(topics, list) else (topics or "")
@@ -338,4 +344,3 @@ if __name__ == "__main__":
 
     vid = sys.argv[1]
     ingest_single_video(vid)
-
