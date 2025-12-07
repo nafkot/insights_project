@@ -8,6 +8,8 @@ from flask import Flask, render_template, request, g, jsonify, url_for, redirect
 from dotenv import load_dotenv
 from openai import OpenAI
 import markdown
+import time
+import random
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(BASE_DIR)
@@ -47,7 +49,7 @@ def from_json_filter(value):
 
 def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, last_mention_date):
     """
-    Generic Intelligence Generator for both Brands and Products.
+    Generic Intelligence Generator with Retry Logic & Safe Batching.
     """
     if not context_data:
         return {"brief": None, "video_summaries": {}}
@@ -57,12 +59,14 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
     # 1. Check Cache
     cached = conn.execute("SELECT payload, updated_at FROM cached_dashboards WHERE key = ?", (cache_key,)).fetchone()
     if cached:
+        # If cache is fresh enough (newer than last video), use it
         if last_mention_date and cached['updated_at'] >= last_mention_date:
             try: return json.loads(cached['payload'])
             except: pass
 
-    # 2. Prepare Prompt
-    recent_batch = context_data[:25]
+    # 2. Prepare Data (Reduced Batch Size to avoid Rate Limits/Context Errors)
+    # 15 snippets is usually safe for GPT-4o-mini
+    recent_batch = context_data[:15]
     prompt_items = "".join([f"DATE: {i['date']}\nVIDEO_ID: {i['video_id']}\nTXT: {i['text']}\n---\n" for i in recent_batch])
 
     role_desc = "Senior Brand Strategist" if entity_type == "brand" else "Product Marketing Manager"
@@ -70,41 +74,57 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
     prompt = f"""
     You are a {role_desc}. Analyze social conversations around the {entity_type} "{entity_name}".
 
-    INPUT DATA:
+    INPUT DATA (Snippets):
     {prompt_items}
 
     TASK:
-    Return a JSON object with:
-    1. "brief": A Strategic Report (HTML). Structure:
-       - Executive Summary (Overview of perception).
-       - Key Drivers (What features/products are driving the talk?).
-       - Sentiment & Trends (Is it trending up/down? Positive/Negative shifts?).
-    2. "video_summaries": Key-Value pairs (VideoID -> 1-sentence summary of the specific mention).
+    1. Write a "Strategic Brief" (HTML).
+    2. Generate a "Word Cloud" of the top 10-15 descriptive words or short phrases used by creators to describe this {entity_type}.
+       - Classify each as "positive", "negative", or "neutral".
+       - Assign a "weight" (1-5) based on how often/strongly it appeared.
 
     JSON SCHEMA:
-    {{ "brief": "<div>...</div>", "video_summaries": {{ "vid_id": "..." }} }}
+    {{
+      "brief": "<div>...</div>",
+      "video_summaries": {{ "vid_id": "..." }},
+      "word_cloud": [
+         {{ "text": "pigmented", "sentiment": "positive", "weight": 5 }},
+         {{ "text": "expensive", "sentiment": "negative", "weight": 3 }}
+      ]
+    }}
     """
 
     print(f"[LLM] Generating {entity_type} intelligence for {entity_name}...")
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "Return valid JSON."}, {"role": "user", "content": prompt}],
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        result = json.loads(resp.choices[0].message.content)
 
-        conn.execute("""
-            INSERT INTO cached_dashboards (key, type, payload, updated_at)
-            VALUES (?, ?, ?, datetime('now'))
-            ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
-        """, (cache_key, 'intel', json.dumps(result)))
-        conn.commit()
-        return result
-    except Exception as e:
-        print(f"Error: {e}")
-        return {"brief": None, "video_summaries": {}}
+    # 3. Retry Logic
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": "Return valid JSON."}, {"role": "user", "content": prompt}],
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(resp.choices[0].message.content)
+
+            # Save to Cache
+            conn.execute("""
+                INSERT INTO cached_dashboards (key, type, payload, updated_at)
+                VALUES (?, ?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
+            """, (cache_key, 'intel', json.dumps(result)))
+            conn.commit()
+            return result
+
+        except Exception as e:
+            print(f"[LLM Error] Attempt {attempt+1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2) # Wait 2 seconds before retry
+            else:
+                print("[LLM] Giving up on intelligence generation.")
+                return {"brief": None, "video_summaries": {}}
+
 
 # Wrappers
 def get_product_intelligence(conn, pid, name, data, date): return get_intel_common(conn, "product", pid, name, data, date)
@@ -277,7 +297,7 @@ def brand_profile(brand_id):
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM brand_mentions WHERE brand_id = ? GROUP BY day ORDER BY day ASC", (brand_id,)).fetchall()
 
     return render_template("brand_profile.html", brand=brand, metrics=metrics, top_creator=top_creator,
-                           top_products=top_products, videos=final_videos, marketing_brief=intelligence.get('brief'),
+                           top_products=top_products, videos=final_videos,marketing_brief_data=intelligence,
                            chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
 
 
@@ -310,7 +330,7 @@ def product_profile(product_id):
 
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM product_mentions WHERE product_id = ? GROUP BY day ORDER BY day ASC", (product_id,)).fetchall()
 
-    return render_template("product_profile.html", product=product, metrics=metrics, top_creator=top_creator, videos=final_videos, marketing_brief=intelligence.get('brief'), chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
+    return render_template("product_profile.html", product=product, metrics=metrics, top_creator=top_creator, videos=final_videos, marketing_brief_data=intelligence, chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
 
 # ... (Keep existing video_profile, autocomplete, main) ...
 @app.route("/video/<video_id>")

@@ -23,7 +23,7 @@
     </div>
 
     <div id="filterStats" style="font-size:13px; color:#888; margin-bottom:20px;">
-        Showing <strong id="visibleCount">0</strong> brands
+        <span id="statsText">Loading directory index...</span>
     </div>
 
     {% if brands %}
@@ -69,7 +69,8 @@
 <script>
     const searchInput = document.getElementById('dirSearch');
     const toggleInput = document.getElementById('onlyMentioned');
-    const visibleCount = document.getElementById('visibleCount');
+    // REMOVED: const visibleCount = ... (we will target the span directly now)
+    const statsText = document.getElementById('statsText');
     const items = document.querySelectorAll('.brand-item');
 
     function filterBrands() {
@@ -77,8 +78,6 @@
         const showOnlyMentioned = toggleInput.checked;
         let count = 0;
 
-        // PERFORMANCE FIX: Use requestAnimationFrame
-        // This prevents the browser from freezing while calculating visibility for 8000+ items
         window.requestAnimationFrame(() => {
             items.forEach(item => {
                 const name = item.getAttribute('data-name');
@@ -94,7 +93,9 @@
                     item.style.display = 'none';
                 }
             });
-            visibleCount.textContent = count;
+
+            // UPDATE: Change text only after counting is done
+            statsText.innerHTML = `Showing <strong>${count}</strong> brands`;
         });
     }
 
