@@ -248,16 +248,62 @@ def channel_profile(channel_id):
     conn = get_db()
     channel = conn.execute("SELECT * FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
     if not channel: return "Channel not found", 404
+
+    # 1. Fetch Videos
     videos = conn.execute("SELECT * FROM videos WHERE channel_id = ? ORDER BY upload_date DESC", (channel_id,)).fetchall()
 
-    # Simple stats
-    sents = []
-    for v in videos:
-        s = (v["overall_sentiment"] or "").lower()
-        sents.append(100 if "positive" in s else (0 if "negative" in s else 50))
+    # 2. Stats
+    stats_row = conn.execute("""
+        SELECT COUNT(DISTINCT brand_id), COUNT(DISTINCT product_id)
+        FROM (
+            SELECT brand_id, NULL as product_id FROM brand_mentions WHERE channel_id = ?
+            UNION ALL
+            SELECT NULL, product_id FROM product_mentions WHERE channel_id = ?
+        )
+    """, (channel_id, channel_id)).fetchone()
 
-    stats = {"video_count": len(videos), "sentiment_avg": sum(sents)/len(sents) if sents else 50}
-    return render_template("channel_profile.html", channel=channel, videos=videos, stats=stats)
+    # Calculate Sentiment
+    sents = [100 if "positive" in (v["overall_sentiment"] or "").lower() else 0 for v in videos]
+    avg_sentiment = sum(sents)/len(sents) if sents else 50
+
+    stats = {
+        "video_count": len(videos),
+        "sentiment_avg": avg_sentiment,
+        "brand_count": conn.execute("SELECT COUNT(DISTINCT brand_id) FROM brand_mentions WHERE channel_id=?",(channel_id,)).fetchone()[0],
+        "product_count": conn.execute("SELECT COUNT(DISTINCT product_id) FROM product_mentions WHERE channel_id=?",(channel_id,)).fetchone()[0]
+    }
+
+    # 3. Top Brands & Products
+    top_brands = conn.execute("""
+        SELECT b.id, b.name, COUNT(*) as cnt
+        FROM brand_mentions bm JOIN brands b ON bm.brand_id = b.id
+        WHERE bm.channel_id = ? GROUP BY b.id ORDER BY cnt DESC LIMIT 6
+    """, (channel_id,)).fetchall()
+
+    top_products = conn.execute("""
+        SELECT p.id, p.name, b.name as brand_name, COUNT(*) as cnt
+        FROM product_mentions pm JOIN products p ON pm.product_id = p.id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        WHERE pm.channel_id = ? GROUP BY p.id ORDER BY cnt DESC LIMIT 6
+    """, (channel_id,)).fetchall()
+
+    # 4. Generate Word Cloud Data (Brands + Products)
+    # We combine the top mentioned items into a word cloud list
+    cloud_data = []
+    for b in top_brands:
+        cloud_data.append({"text": b['name'], "weight": b['cnt'] + 2}) # Boost weight for brands
+    for p in top_products:
+        cloud_data.append({"text": p['name'], "weight": p['cnt']})
+
+    return render_template(
+        "channel_profile.html",
+        channel=channel,
+        videos=videos,
+        stats=stats,
+        top_brands=top_brands,
+        top_products=top_products,
+        word_cloud_data=cloud_data # Pass this to template
+    )
 
 @app.route("/brand/<brand_id>")
 def brand_profile(brand_id):

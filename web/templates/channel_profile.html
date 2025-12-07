@@ -1,81 +1,174 @@
 {% extends "base.html" %}
+
 {% block content %}
-<section class="entity-header">
-  <div>
-    <h1>{{ channel['title'] }}</h1>
-    <p>{{ channel['description'] }}</p>
-    <div class="meta-row">
-      <span>Subscribers: {{ channel['subscriber_count'] }}</span>
-      <span>Views: {{ channel['view_count'] }}</span>
-      <span>Videos: {{ stats.video_count }}</span>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
+
+<div class="profile-header">
+    <div style="max-width:1200px; margin:0 auto; display:flex; align-items:center; gap:25px;">
+
+        <div style="width:80px; height:80px; background:#fff; border-radius:50%; overflow:hidden; border:3px solid #fff; box-shadow:0 4px 12px rgba(0,0,0,0.1); flex-shrink:0;">
+            {% if channel.thumbnail_url %}
+                <img src="{{ channel.thumbnail_url }}" style="width:100%; height:100%; object-fit:cover;">
+            {% else %}
+                <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#ddd; font-weight:bold; font-size:24px;">{{ channel.title[0] }}</div>
+            {% endif %}
+        </div>
+
+        <div style="flex:1;">
+            <div style="font-size:12px; color:var(--primary-color); font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:5px;">
+                YouTube Creator
+            </div>
+            <h1 class="profile-title" style="margin-bottom:5px;">{{ channel.title }}</h1>
+
+            <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+
+                {% if channel.website %}
+                <a href="{{ channel.website }}" target="_blank" class="social-icon" title="Website">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+                </a>
+                {% endif %}
+
+                {% if channel.instagram %}
+                <a href="https://instagram.com/{{ channel.instagram|replace('@','') }}" target="_blank" class="social-icon instagram" title="Instagram">
+                    <svg viewBox="0 0 24 24"><path d="M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 0 1 1.25 1.25A1.25 1.25 0 0 1 17.25 8 1.25 1.25 0 0 1 16 6.75a1.25 1.25 0 0 1 1.25-1.25M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
+                </a>
+                {% endif %}
+
+                {% if channel.tiktok %}
+                <a href="https://tiktok.com/{{ channel.tiktok }}" target="_blank" class="social-icon tiktok" title="TikTok">
+                    <svg viewBox="0 0 24 24"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.65-1.62-1.12v8.76c-.52 4.03-3.71 7.22-7.73 7.33-4.8.1-8.84-3.7-8.86-8.5v-.28c.11-4.79 4.14-8.52 8.94-8.29.13 0 .26.01.39.02v4.2c-2.43-.1-4.63 1.8-4.66 4.34.02 2.45 2.1 4.38 4.54 4.24 2.22-.16 4.06-2.03 4.07-4.26V.02h-.77z"/></svg>
+                </a>
+                {% endif %}
+
+                {% if channel.spotify %}
+                <a href="https://open.spotify.com/user/{{ channel.spotify }}" target="_blank" class="social-icon spotify" title="Spotify">
+                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.59 14.42c-.17.29-.54.38-.83.21-2.28-1.39-5.15-1.71-8.53-.94-.33.08-.66-.13-.74-.46-.08-.33.13-.66.46-.74 3.73-.85 6.94-.46 9.54 1.13.29.17.38.54.2.8zm1.18-2.61c-.22.35-.68.46-1.03.24-2.6-1.6-6.56-2.06-9.63-1.13-.4.12-.82-.1-.94-.5-.12-.4.1-.82.5-.94 3.51-1.07 7.93-.53 10.92 1.3.35.22.46.68.23 1.03zm.13-2.73c-3.12-1.85-8.27-2.02-11.25-1.11-.47.14-.97-.13-1.11-.6-.14-.47.13-.97.6-1.11 3.45-1.05 9.17-.84 12.75 1.28.43.25.57.8.32 1.23-.25.43-.8.57-1.23.32z"/></svg>
+                </a>
+                {% endif %}
+
+                {% if channel.email %}
+                <a href="mailto:{{ channel.email }}" class="social-icon" title="Email">
+                    <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <a href="https://www.youtube.com/channel/{{ channel.channel_id }}" target="_blank" class="yt-visit-btn">
+            <svg viewBox="0 0 24 24"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
+            Visit Channel
+        </a>
     </div>
-  </div>
-</section>
+</div>
 
-<section class="grid-2">
-  <div class="card">
-    <h2>Channel Overview</h2>
-    <p>Average sentiment: {{ "%.1f"|format(stats.sentiment_avg) }} / 100</p>
-    <p>Distinct brands: {{ stats.brand_count }} |
-       Sponsors: {{ stats.sponsor_count }} |
-       Products: {{ stats.product_count }}</p>
+<div style="max-width:1200px; margin:0 auto; padding:0 20px;">
 
-    <h3>Top Topics</h3>
-    <ul class="pill-list">
-      {% for t in stats.top_topics %}
-        <li>{{ t }}</li>
-      {% endfor %}
-    </ul>
-  </div>
+    <div style="margin:30px 0; background:#f9f9f9; padding:20px; border-radius:12px; border:1px solid #eee;">
+        <h3 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:15px; text-align:center;">
+            What {{ channel.title }} Talks About
+        </h3>
+        <div id="channel-cloud-container" style="width:100%; height:200px; position:relative;">
+            <canvas id="channelCloud" width="800" height="200"></canvas>
+        </div>
+    </div>
 
-  <div class="card">
-    <h2>Brands & Sponsors</h2>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:30px; margin-bottom:40px;">
 
-    <h3>Brands</h3>
-    <ul class="pill-list">
-      {% for b in stats.top_brands %}
-        <li><a href="{{ url_for('brand_dashboard', brand_name=b) }}">{{ b }}</a></li>
-      {% endfor %}
-    </ul>
+        <div class="list-card">
+            <h3>Top Discussed Brands</h3>
+            <ul class="ranking-list">
+                {% if top_brands %}
+                    {% for b in top_brands %}
+                    <li class="ranking-item">
+                        <span class="rank-number">{{ loop.index }}</span>
+                        <div style="width:28px; height:28px; background:#f0f2f5; border-radius:50%; margin-right:10px; display:flex; align-items:center; justify-content:center; color:#777; font-size:10px; font-weight:bold;">
+                            {{ b.name[0] }}
+                        </div>
 
-    <h3>Sponsors</h3>
-    <ul class="pill-list">
-      {% for s in stats.top_sponsors %}
-        <li><a href="{{ url_for('sponsor_dashboard', sponsor_name=s) }}">{{ s }}</a></li>
-      {% endfor %}
-    </ul>
+                        <a href="/brand/{{ b.id }}?channel={{ channel.channel_id }}" class="rank-name">{{ b.name }}</a>
 
-    <h3>Products</h3>
-    <ul class="pill-list">
-      {% for p in stats.top_products %}
-        <li><a href="{{ url_for('product_dashboard', product_name=p) }}">{{ p }}</a></li>
-      {% endfor %}
-    </ul>
-  </div>
-</section>
+                        <small style="color:#777">{{ b.cnt }} mentions</small>
+                    </li>
+                    {% endfor %}
+                {% else %}
+                    <p style="color:#999; padding:20px; font-style:italic;">No brand data yet.</p>
+                {% endif %}
+            </ul>
+        </div>
 
-<section class="card">
-  <h2>Videos</h2>
-  <table class="simple-table">
-    <thead>
-      <tr>
-        <th>Title</th>
-        <th>Upload date</th>
-        <th>Views</th>
-        <th>Sentiment</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for v in videos %}
-      <tr>
-        <td>{{ v['title'] }}</td>
-        <td>{{ v['upload_date'] }}</td>
-        <td>{{ v['view_count'] }}</td>
-        <td>{{ v['overall_sentiment'] }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
+        <div class="list-card">
+            <h3>Top Discussed Products</h3>
+            <ul class="ranking-list">
+                {% if top_products %}
+                    {% for p in top_products %}
+                    <li class="ranking-item">
+                        <span class="rank-number">{{ loop.index }}</span>
+                        <div style="width:28px; height:28px; background:#fff0f5; border-radius:4px; margin-right:10px; display:flex; align-items:center; justify-content:center; color:#d46a7e; font-size:10px; font-weight:bold;">
+                            {{ p.name[0] }}
+                        </div>
+                        <div style="flex:1; line-height:1.2;">
+                            <a href="/product/{{ p.id }}?channel={{ channel.channel_id }}" class="rank-name" style="display:block;">{{ p.name }}</a>
+                        </div>
+                        <small style="color:#777">{{ p.cnt }} mentions</small>
+                    </li>
+                    {% endfor %}
+                {% else %}
+                    <p style="color:#999; padding:20px; font-style:italic;">No product data yet.</p>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+
+    </div>
+
+<style>
+/* Social Icons */
+.social-icon {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: #f0f0f0;
+    fill: #555;
+    transition: all 0.2s;
+}
+.social-icon svg { width: 16px; height: 16px; }
+.social-icon:hover { transform: translateY(-2px); fill: white; }
+.social-icon.instagram:hover { background: #E1306C; }
+.social-icon.tiktok:hover { background: #000; }
+.social-icon.spotify:hover { background: #1DB954; }
+
+/* YouTube Button */
+.yt-visit-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #FF0000; color: white;
+    padding: 8px 16px; border-radius: 4px;
+    font-weight: 600; text-decoration: none;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+.yt-visit-btn:hover { background: #cc0000; }
+.yt-visit-btn svg { width: 20px; height: 20px; fill: white; }
+</style>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const cloudData = {{ word_cloud_data | tojson }};
+        if(cloudData && cloudData.length > 0) {
+            const list = cloudData.map(item => [item.text, 12 + (item.weight * 3)]); // Scale
+            const canvas = document.getElementById('channelCloud');
+            canvas.width = document.getElementById('channel-cloud-container').offsetWidth;
+
+            WordCloud(canvas, {
+                list: list,
+                gridSize: 8,
+                weightFactor: 1,
+                fontFamily: 'Inter, sans-serif',
+                color: 'random-dark', // or custom color callback
+                backgroundColor: 'transparent',
+                rotateRatio: 0
+            });
+        }
+    });
+</script>
+
 {% endblock %}
-

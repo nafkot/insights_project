@@ -532,3 +532,23 @@ body {
 .chip-positive { background-color: #e6f4ea; color: #1e8e3e; border-color: #d8eadc; }
 .chip-negative { background-color: #fce8e6; color: #c5221f; border-color: #fadddb; }
 .chip-neutral  { background-color: #f8f9fa; color: #5f6368; border-color: #e9ecef; }
+
+<style>
+.social-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 20px;
+    background: #fff;
+    border: 1px solid #ddd;
+    color: #555;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.2s;
+}
+.social-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+</style>
