@@ -24,22 +24,23 @@
             {% if marketing_brief %}
                 <div style="font-size:14px; line-height:1.6; color:#444;">{{ marketing_brief | safe }}</div>
                 
-                {% if marketing_brief_data and marketing_brief_data.word_cloud %}
+		{% if marketing_brief_data and marketing_brief_data.word_cloud %}
                 <div style="margin-top:20px;">
                     <h4 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:10px;">Common Associations</h4>
                     <div style="display:flex; flex-wrap:wrap; gap:8px;">
                         {% for tag in marketing_brief_data.word_cloud %}
+                            {# Define Colors #}
                             {% set colors = {'positive': '#e6f4ea', 'negative': '#fce8e6', 'neutral': '#f1f3f4'} %}
                             {% set text_colors = {'positive': '#1e8e3e', 'negative': '#c5221f', 'neutral': '#5f6368'} %}
-                            
-                            <span style="
-                                background-color: {{ colors[tag.sentiment] }}; 
-                                color: {{ text_colors[tag.sentiment] }};
-                                padding: {{ 4 + tag.weight }}px {{ 8 + tag.weight }}px; 
-                                border-radius: 16px; 
-                                font-size: {{ 11 + tag.weight }}px; 
-                                font-weight: 500;
-                                display: inline-block;">
+
+                            {# CRITICAL FIX: Use |lower to handle 'Positive' vs 'positive' #}
+                            {% set sent = tag.sentiment|lower %}
+
+                            <span class="sentiment-chip" style="
+                                background-color: {{ colors[sent] if sent in colors else '#f1f3f4' }};
+                                color: {{ text_colors[sent] if sent in text_colors else '#5f6368' }};
+                                padding: {{ 4 + (tag.weight|default(1)) }}px {{ 8 + (tag.weight|default(1)) }}px;
+                                font-size: {{ 11 + (tag.weight|default(1)) }}px;">
                                 {{ tag.text }}
                             </span>
                         {% endfor %}

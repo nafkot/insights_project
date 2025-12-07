@@ -49,9 +49,10 @@ def from_json_filter(value):
 
 def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, last_mention_date):
     """
-    Generic Intelligence Generator with Retry Logic & Safe Batching.
+    Generic Intelligence Generator with Debugging.
     """
     if not context_data:
+        print(f"[Debug] No context data for {entity_name}")
         return {"brief": None, "video_summaries": {}}
 
     cache_key = f"{entity_type}:{entity_id}:intel_v3"
@@ -59,13 +60,13 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
     # 1. Check Cache
     cached = conn.execute("SELECT payload, updated_at FROM cached_dashboards WHERE key = ?", (cache_key,)).fetchone()
     if cached:
-        # If cache is fresh enough (newer than last video), use it
         if last_mention_date and cached['updated_at'] >= last_mention_date:
-            try: return json.loads(cached['payload'])
+            try:
+                print(f"[Debug] Returning cached intel for {entity_name}")
+                return json.loads(cached['payload'])
             except: pass
 
-    # 2. Prepare Data (Reduced Batch Size to avoid Rate Limits/Context Errors)
-    # 15 snippets is usually safe for GPT-4o-mini
+    # 2. Prepare Data
     recent_batch = context_data[:15]
     prompt_items = "".join([f"DATE: {i['date']}\nVIDEO_ID: {i['video_id']}\nTXT: {i['text']}\n---\n" for i in recent_batch])
 
@@ -79,34 +80,45 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
 
     TASK:
     1. Write a "Strategic Brief" (HTML).
-    2. Generate a "Word Cloud" of the top 10-15 descriptive words or short phrases used by creators to describe this {entity_type}.
-       - Classify each as "positive", "negative", or "neutral".
-       - Assign a "weight" (1-5) based on how often/strongly it appeared.
+    2. Generate a "Word Cloud" of the top 10 descriptors.
 
-    JSON SCHEMA:
+    JSON SCHEMA (Strict):
     {{
       "brief": "<div>...</div>",
       "video_summaries": {{ "vid_id": "..." }},
       "word_cloud": [
-         {{ "text": "pigmented", "sentiment": "positive", "weight": 5 }},
-         {{ "text": "expensive", "sentiment": "negative", "weight": 3 }}
+         {{ "text": "word", "sentiment": "positive", "weight": 5 }}
       ]
     }}
     """
 
     print(f"[LLM] Generating {entity_type} intelligence for {entity_name}...")
 
-    # 3. Retry Logic
     max_retries = 3
     for attempt in range(max_retries):
         try:
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "Return valid JSON."}, {"role": "user", "content": prompt}],
+                messages=[{"role": "system", "content": "Return valid JSON only."}, {"role": "user", "content": prompt}],
                 temperature=0.3,
                 response_format={"type": "json_object"}
             )
-            result = json.loads(resp.choices[0].message.content)
+            raw_content = resp.choices[0].message.content
+
+            # --- DEBUG PRINT ---
+            print(f"[Debug LLM Response]: {raw_content[:200]}...")
+            # -------------------
+
+            result = json.loads(raw_content)
+
+            # Fallback: Check if keys exist, if not, try to patch
+            if 'brief' not in result:
+                print("[Debug] 'brief' key missing! Keys found:", result.keys())
+                # Try to find a similar key
+                for k in result.keys():
+                    if 'brief' in k or 'report' in k:
+                        result['brief'] = result[k]
+                        break
 
             # Save to Cache
             conn.execute("""
@@ -118,12 +130,13 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
             return result
 
         except Exception as e:
-            print(f"[LLM Error] Attempt {attempt+1}/{max_retries} failed: {e}")
+            print(f"[LLM Error] Attempt {attempt+1} failed: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2) # Wait 2 seconds before retry
+                time.sleep(2)
             else:
-                print("[LLM] Giving up on intelligence generation.")
                 return {"brief": None, "video_summaries": {}}
+
+    return {"brief": None}
 
 
 # Wrappers
@@ -235,27 +248,27 @@ def channel_profile(channel_id):
     stats = {"video_count": len(videos), "sentiment_avg": sum(sents)/len(sents) if sents else 50}
     return render_template("channel_profile.html", channel=channel, videos=videos, stats=stats)
 
-# --- NEW BRAND PROFILE (UPDATED) ---
 @app.route("/brand/<brand_id>")
 def brand_profile(brand_id):
     conn = get_db()
     brand = conn.execute("SELECT * FROM brands WHERE id = ?", (brand_id,)).fetchone()
     if not brand: return "Brand not found", 404
 
-    # Metrics
+    # 1. Metrics
     metrics = conn.execute("""
         SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels,
                AVG(sentiment_score) as avg_sentiment, MAX(first_seen_date) as last_mentioned
         FROM brand_mentions WHERE brand_id = ?
     """, (brand_id,)).fetchone()
 
-    # Top Creator
+    # 2. Top Creator
     top_creator = conn.execute("""
         SELECT channel_name, COUNT(*) as cnt FROM brand_mentions bm
         JOIN videos v ON bm.video_id = v.video_id WHERE bm.brand_id = ?
         GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1
     """, (brand_id,)).fetchone()
 
+    # 3. Top Products (Fix for 0 mentions crash)
     top_products = conn.execute("""
         SELECT
             p.id,
@@ -269,7 +282,7 @@ def brand_profile(brand_id):
         ORDER BY cnt DESC
     """, (brand_id,)).fetchall()
 
-    # Videos
+    # 4. Videos & Context
     videos_rows = conn.execute("""
         SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
                bm.mention_count, bm.sentiment_score
@@ -284,21 +297,35 @@ def brand_profile(brand_id):
         vid = dict(row)
         matches = conn.execute("SELECT text FROM video_segments WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3", (vid['video_id'], f"%{brand['name'].lower()}%")).fetchall()
         snippet = " ... ".join([m['text'] for m in matches]) if matches else "Brand mentioned in video."
+
         vid['raw_snippet'] = snippet
         llm_input.append({"video_id": vid['video_id'], "date": vid['upload_date'], "text": snippet})
         videos.append(vid)
 
+    # 5. Intelligence
     intelligence = get_brand_intelligence(conn, brand_id, brand['name'], llm_input, metrics['last_mentioned'])
+
     final_videos = []
     for v in videos:
         v['display_summary'] = intelligence.get('video_summaries', {}).get(v['video_id'], v['raw_snippet'])
         final_videos.append(v)
 
+    # 6. Chart Data
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM brand_mentions WHERE brand_id = ? GROUP BY day ORDER BY day ASC", (brand_id,)).fetchall()
 
-    return render_template("brand_profile.html", brand=brand, metrics=metrics, top_creator=top_creator,
-                           top_products=top_products, videos=final_videos,marketing_brief_data=intelligence,
-                           chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
+    return render_template(
+        "brand_profile.html",
+        brand=brand,
+        metrics=metrics,
+        top_creator=top_creator,
+        top_products=top_products,
+        videos=final_videos,
+        marketing_brief=intelligence.get('brief'),           # Text Brief
+        marketing_brief_data=intelligence,                   # <--- CRITICAL: Pass full object for Word Cloud
+        chart_labels=[r['day'] for r in timeline],
+        chart_mentions=[r['cnt'] for r in timeline],
+        chart_sentiment=[r['score'] for r in timeline]
+    )
 
 
 @app.route("/product/<int:product_id>")

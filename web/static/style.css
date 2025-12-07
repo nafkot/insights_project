@@ -487,3 +487,15 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.sentiment-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 2px;
+    white-space: nowrap;
+    transition: transform 0.2s;
+}
+.sentiment-chip:hover {
+    transform: scale(1.05);
+}
