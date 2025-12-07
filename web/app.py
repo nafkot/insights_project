@@ -80,17 +80,28 @@ def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, la
 
     TASK:
     1. Write a "Strategic Brief" (HTML).
-    2. Generate a "Word Cloud" of the top 10 descriptors.
+    2. Generate a "Word Cloud" of 15-20 distinctive attributes, adjectives, or themes.
 
-    JSON SCHEMA (Strict):
+    CRITICAL RULES FOR WORD CLOUD:
+    - **FORBIDDEN WORDS**: Do NOT include the brand name ("{entity_name}"), product names, or generic terms like "product", "brand", "video", "channel", "thing", "love", "like", "obsesed", "hate", "prefer".
+    - **FOCUS ON ATTRIBUTES**: Look for specific descriptors about:
+      - Texture (e.g., "creamy", "chalky", "sticky")
+      - Performance (e.g., "long-lasting", "pigmented", "patchy")
+      - Value (e.g., "overpriced", "affordable", "worth it")
+      - Packaging (e.g., "bulky", "luxurious", "cheap")
+    - **SENTIMENT**: accurately classify each word as positive/negative/neutral.
+
+    JSON SCHEMA:
     {{
       "brief": "<div>...</div>",
       "video_summaries": {{ "vid_id": "..." }},
       "word_cloud": [
-         {{ "text": "word", "sentiment": "positive", "weight": 5 }}
+         {{ "text": "creamy", "sentiment": "positive", "weight": 5 }},
+         {{ "text": "expensive", "sentiment": "negative", "weight": 4 }}
       ]
     }}
     """
+
 
     print(f"[LLM] Generating {entity_type} intelligence for {entity_name}...")
 

@@ -24,29 +24,79 @@
             {% if marketing_brief %}
                 <div style="font-size:14px; line-height:1.6; color:#444;">{{ marketing_brief | safe }}</div>
                 
-		{% if marketing_brief_data and marketing_brief_data.word_cloud %}
-                <div style="margin-top:20px;">
-                    <h4 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:10px;">Common Associations</h4>
-                    <div style="display:flex; flex-wrap:wrap; gap:8px;">
-                        {% for tag in marketing_brief_data.word_cloud %}
-                            {# Define Colors #}
-                            {% set colors = {'positive': '#e6f4ea', 'negative': '#fce8e6', 'neutral': '#f1f3f4'} %}
-                            {% set text_colors = {'positive': '#1e8e3e', 'negative': '#c5221f', 'neutral': '#5f6368'} %}
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/wordcloud2.js/1.2.2/wordcloud2.min.js"></script>
 
-                            {# CRITICAL FIX: Use |lower to handle 'Positive' vs 'positive' #}
-                            {% set sent = tag.sentiment|lower %}
+		{% if marketing_brief %}
+                <div style="font-size:14px; line-height:1.6; color:#444;">{{ marketing_brief | safe }}</div>
 
-                            <span class="sentiment-chip" style="
-                                background-color: {{ colors[sent] if sent in colors else '#f1f3f4' }};
-                                color: {{ text_colors[sent] if sent in text_colors else '#5f6368' }};
-                                padding: {{ 4 + (tag.weight|default(1)) }}px {{ 8 + (tag.weight|default(1)) }}px;
-                                font-size: {{ 11 + (tag.weight|default(1)) }}px;">
-                                {{ tag.text }}
-                            </span>
-                        {% endfor %}
+                {% if marketing_brief_data and marketing_brief_data.word_cloud %}
+                <div class="cloud-container" style="margin-top:20px; text-align:center;">
+                    <h4 style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:#999; margin-bottom:15px;">
+                        Common Associations
+                    </h4>
+
+                    <div id="canvas-container" style="width:100%; height:250px; position:relative;">
+                        <canvas id="sentimentCloudCanvas" width="500" height="250"></canvas>
                     </div>
                 </div>
+
+                <script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        // 1. Prepare Data from Python -> JS
+                        const rawData = [
+                            {% for tag in marketing_brief_data.word_cloud %}
+                            {
+                                text: "{{ tag.text }}",
+                                weight: {{ tag.weight|default(1) }},
+                                sentiment: "{{ tag.sentiment|lower }}"
+                            },
+                            {% endfor %}
+                        ];
+
+                        // 2. Define Color Map
+                        const colorMap = {
+                            'positive': '#1e8e3e', // Green
+                            'negative': '#c5221f', // Red
+                            'neutral':  '#5f6368'  // Gray
+                        };
+
+                        // 3. Format for WordCloud2: [[word, size], ...]
+                        // We scale the size up (weight * 6) to make it visible
+                        const list = rawData.map(item => [item.text, 12 + (item.weight * 7)]);
+
+                        // 4. Color Callback (Matches word to sentiment)
+                        function colorCallback(word, weight, fontSize, distance, theta) {
+                            // Find the original data object for this word
+                            const original = rawData.find(x => x.text === word);
+                            if (original && colorMap[original.sentiment]) {
+                                return colorMap[original.sentiment];
+                            }
+                            return '#5f6368'; // Default Gray
+                        }
+
+                        // 5. Render
+                        const canvas = document.getElementById('sentimentCloudCanvas');
+                        // Make canvas fill the container width
+                        canvas.width = document.getElementById('canvas-container').offsetWidth;
+
+                        WordCloud(canvas, {
+                            list: list,
+                            gridSize: 8,
+                            weightFactor: 1,
+                            fontFamily: 'Inter, sans-serif',
+                            color: colorCallback,
+                            rotateRatio: 0,        // 0 = all horizontal (easier to read)
+                            backgroundColor: 'transparent',
+                            shrinkToFit: true,
+                            drawOutOfBound: false
+                        });
+                    });
+                </script>
                 {% endif %}
+
+            {% else %}
+                <p style="color:#999; font-style:italic;">Gathering brand data...</p>
+            {% endif %}
             {% else %}
                 <p style="color:#999; font-style:italic;">Gathering brand data...</p>
             {% endif %}

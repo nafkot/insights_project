@@ -499,3 +499,36 @@ body {
 .sentiment-chip:hover {
     transform: scale(1.05);
 }
+
+/* --- Sentiment Word Cloud --- */
+.sentiment-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px; /* Row Gap, Column Gap */
+    justify-content: center; /* This creates the "Cloud" cluster effect */
+    margin-top: 15px;
+    padding: 10px;
+}
+
+.sentiment-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50px; /* Full Pill Shape */
+    font-weight: 600;
+    line-height: 1.2;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* Bouncy hover */
+    cursor: default;
+    border: 1px solid transparent;
+}
+
+.sentiment-chip:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    z-index: 2; /* Pop over others */
+}
+
+/* Color Variants */
+.chip-positive { background-color: #e6f4ea; color: #1e8e3e; border-color: #d8eadc; }
+.chip-negative { background-color: #fce8e6; color: #c5221f; border-color: #fadddb; }
+.chip-neutral  { background-color: #f8f9fa; color: #5f6368; border-color: #e9ecef; }
