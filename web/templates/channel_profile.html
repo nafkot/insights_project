@@ -63,12 +63,61 @@
 
 <div style="max-width:1200px; margin:0 auto; padding:0 20px;">
 
+	<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:20px; margin-bottom:40px; margin-top:-30px; position:relative; z-index:2;">
+        <div class="insight-card" style="text-align:center;">
+            <span class="insight-label">Avg Sentiment</span>
+            <div class="insight-value" style="color: {{ '#4caf50' if stats.sentiment_avg > 60 else ('#f44336' if stats.sentiment_avg < 40 else '#ff9800') }}">
+                {{ "%.0f"|format(stats.sentiment_avg) }}%
+            </div>
+            <small style="color:#999;">Positivity Score</small>
+        </div>
+
+        <a href="/brands/all?channel={{ channel.channel_id }}" class="insight-card" style="text-align:center; text-decoration:none; transition:transform 0.2s;">
+            <span class="insight-label">Brands Discussed</span>
+            <div class="insight-value" style="color:var(--text-dark);">{{ stats.brand_count }}</div>
+            <small style="color:#999;">View All &rarr;</small>
+        </a>
+
+        <a href="/products/all?channel={{ channel.channel_id }}" class="insight-card" style="text-align:center; text-decoration:none; transition:transform 0.2s;">
+            <span class="insight-label">Products Reviewed</span>
+            <div class="insight-value" style="color:var(--text-dark);">{{ stats.product_count }}</div>
+            <small style="color:#999;">View All &rarr;</small>
+        </a>
+
+        <div class="insight-card" style="text-align:center;">
+            <span class="insight-label">Analyzed Videos</span>
+            <div class="insight-value">{{ stats.video_count }}</div>
+            <small style="color:#999;">In Database</small>
+        </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin:30px 0;">
+
+        <div style="background:#f9f9f9; padding:20px; border-radius:12px; border:1px solid #eee;">
+            <h3 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:15px; text-align:center;">
+                Favorite Brands
+            </h3>
+            <div id="brand-cloud-container" style="width:100%; height:200px; position:relative;">
+                <canvas id="brandCloud" width="400" height="200"></canvas>
+            </div>
+        </div>
+
+        <div style="background:#f9f9f9; padding:20px; border-radius:12px; border:1px solid #eee;">
+            <h3 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:15px; text-align:center;">
+                Favorite Products
+            </h3>
+            <div id="product-cloud-container" style="width:100%; height:200px; position:relative;">
+                <canvas id="productCloud" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
     <div style="margin:30px 0; background:#f9f9f9; padding:20px; border-radius:12px; border:1px solid #eee;">
         <h3 style="font-size:12px; text-transform:uppercase; color:#999; margin-bottom:15px; text-align:center;">
             What {{ channel.title }} Talks About
         </h3>
-        <div id="channel-cloud-container" style="width:100%; height:200px; position:relative;">
-            <canvas id="channelCloud" width="800" height="200"></canvas>
+        <div id="channel-cloud-container" style="width:100%; height:250px; position:relative;">
+            <canvas id="channelCloud" width="800" height="250"></canvas>
         </div>
     </div>
 
@@ -119,7 +168,46 @@
         </div>
     </div>
 
+    <h3 style="font-family:var(--font-serif); border-bottom:1px solid #eee; padding-bottom:12px; margin-bottom:24px;">
+        Recent Videos
+    </h3>
+    <div class="mention-feed">
+        {% if videos %}
+            {% for v in videos %}
+            <div class="mention-card">
+                {% if v.thumbnail_url %}
+                <a href="/video/{{ v.video_id }}"><img src="{{ v.thumbnail_url }}" alt="Thumb" class="mention-thumb"></a>
+                {% else %}
+                <div class="mention-thumb" style="display:flex;align-items:center;justify-content:center;color:#ccc;">Video</div>
+                {% endif %}
+
+                <div class="mention-content">
+                    <div class="mention-header">
+                        <span>{{ v.upload_date[:10] }}</span>
+                        <span>{{ "{:,}".format(v.view_count) }} views</span>
+                    </div>
+
+                    <a href="/video/{{ v.video_id }}" class="mention-title">{{ v.title }}</a>
+
+                    <div style="margin-top:8px;">
+                        {% set s = (v.overall_sentiment or "")|lower %}
+                        {% if 'positive' in s %}
+                            <span class="sentiment-badge sent-pos">Positive</span>
+                        {% elif 'negative' in s %}
+                            <span class="sentiment-badge sent-neg">Negative</span>
+                        {% else %}
+                            <span class="sentiment-badge sent-neu">Neutral</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="color:#999;">No videos found.</p>
+        {% endif %}
     </div>
+
+</div>
 
 <style>
 /* Social Icons */
@@ -152,22 +240,30 @@
 
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        const cloudData = {{ word_cloud_data | tojson }};
-        if(cloudData && cloudData.length > 0) {
-            const list = cloudData.map(item => [item.text, 12 + (item.weight * 3)]); // Scale
-            const canvas = document.getElementById('channelCloud');
-            canvas.width = document.getElementById('channel-cloud-container').offsetWidth;
+
+        // Helper to render cloud
+        function renderCloud(canvasId, containerId, data, color) {
+            if(!data || data.length === 0) return;
+            const list = data.map(item => [item.text, 15 + (item.weight * 4)]);
+            const canvas = document.getElementById(canvasId);
+            canvas.width = document.getElementById(containerId).offsetWidth;
 
             WordCloud(canvas, {
                 list: list,
                 gridSize: 8,
                 weightFactor: 1,
                 fontFamily: 'Inter, sans-serif',
-                color: 'random-dark', // or custom color callback
+                color: color || 'random-dark',
                 backgroundColor: 'transparent',
-                rotateRatio: 0
+                rotateRatio: 0.5
             });
         }
+
+        const brandData = {{ brand_cloud | tojson }};
+        const productData = {{ product_cloud | tojson }};
+
+        renderCloud('brandCloud', 'brand-cloud-container', brandData, '#d46a7e'); // Pinkish for brands
+        renderCloud('productCloud', 'product-cloud-container', productData, '#4caf50'); // Greenish for products
     });
 </script>
 
