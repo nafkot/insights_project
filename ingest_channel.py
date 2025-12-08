@@ -6,56 +6,39 @@ from ingestion.youtube_client import get_authenticated_service, get_channel_deta
 from ingest_video import ingest_single_video
 from config import DB_PATH
 
-# Import social extractor (failsafe)
 try:
     from utils.social_extractor import extract_socials
 except ImportError:
     def extract_socials(text): return {}
 
-# --- LANGUAGE DETECTION REGEX ---
-# Detects: Cyrillic (Russian), Chinese (CJK), Japanese (Hiragana/Katakana), Korean (Hangul), Arabic
 NON_ENGLISH_PATTERN = re.compile(r'[\u0400-\u04FF\u4e00-\u9fff\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u0600-\u06FF]')
 
 def is_english_channel(channel_data):
-    """
-    Returns False if the title or description contains significant non-English characters.
-    """
     text = (channel_data.get("title", "") + " " + channel_data.get("description", "")).strip()
-    
-    # Check 1: Explicit Country Code (JP, KR, CN, RU, etc.)
-    # Note: 'snippet' might not always have country, but we check if present.
-    # (API often puts country in contentDetails, but we use text heuristics as primary)
-    
-    # Check 2: Regex for non-latin scripts
     if NON_ENGLISH_PATTERN.search(text):
         return False
-        
     return True
 
 def ingest_channel(channel_id_or_handle, max_videos=10):
     youtube = get_authenticated_service()
-    
-    # 1. Get Channel Metadata
+
     print(f"Fetching channel details for: {channel_id_or_handle}...")
     channel = get_channel_details(youtube, channel_id_or_handle)
     if not channel:
         print("Channel not found.")
         return
 
-    # --- FILTER: Check Language ---
     if not is_english_channel(channel):
         print(f"⚠️  Skipping Channel: '{channel['title']}' detected as non-English.")
         return
 
-    # 2. Extract Socials from Description
     desc = channel.get("description", "")
     socials = extract_socials(desc)
     print(f"Found Socials: {socials}")
 
-    # 3. Upsert Channel
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
+
     c.execute("""
         INSERT INTO channels (
             channel_id, title, description, subscriber_count, view_count, video_count, thumbnail_url, platform,
@@ -76,33 +59,23 @@ def ingest_channel(channel_id_or_handle, max_videos=10):
             spotify=excluded.spotify,
             soundcloud=excluded.soundcloud
     """, (
-        channel["id"], 
-        channel["title"], 
-        channel["description"], 
-        channel["stats"]["subscriberCount"], 
-        channel["stats"]["viewCount"], 
-        channel["stats"]["videoCount"], 
-        channel["thumbnail"],
-        socials.get("email"), 
-        socials.get("website"), 
-        socials.get("instagram"),
-        socials.get("tiktok"), 
-        socials.get("twitter"), 
-        socials.get("spotify"), 
+        channel["id"], channel["title"], channel["description"],
+        channel["stats"]["subscriberCount"], channel["stats"]["viewCount"],
+        channel["stats"]["videoCount"], channel["thumbnail"],
+        socials.get("email"), socials.get("website"), socials.get("instagram"),
+        socials.get("tiktok"), socials.get("twitter"), socials.get("spotify"),
         socials.get("soundcloud")
     ))
     conn.commit()
     conn.close()
 
-    # 4. Get Videos
     if max_videos > 0:
         print(f"Fetching last {max_videos} videos...")
         videos = get_channel_videos(youtube, channel["id"], limit=max_videos)
-        
-        total_vids = len(videos)
-        # 5. Ingest Videos
+
+        total = len(videos)
         for i, v in enumerate(videos, 1):
-            print(f"[{i}/{total_vids}] Processing {v['title']}...")
+            print(f"[{i}/{total}] Processing {v['title']}...")
             ingest_single_video(v["id"])
     else:
         print("Skipping video ingestion (max_videos=0). Channel details updated.")
@@ -112,5 +85,5 @@ if __name__ == "__main__":
     parser.add_argument("--channel", required=True, help="Channel ID or Handle")
     parser.add_argument("--max-videos", type=int, default=10)
     args = parser.parse_args()
-    
+
     ingest_channel(args.channel, args.max_videos)

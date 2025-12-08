@@ -7,10 +7,10 @@ from datetime import datetime
 from flask import Flask, render_template, request, g, jsonify, url_for, redirect
 from dotenv import load_dotenv
 from openai import OpenAI
-import markdown
 import time
 import random
 
+# Add parent directory to path to import config
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(BASE_DIR)
 
@@ -38,174 +38,103 @@ def close_connection(exception):
     if db is not None:
         db.close()
 
-@app.template_filter("from_json")
-def from_json_filter(value):
-    try: return json.loads(value)
-    except: return []
+# --- INTELLIGENCE HELPERS ---
 
-# -------------------------------------------------------------------------
-# INTELLIGENCE HELPERS (Product & Brand)
-# -------------------------------------------------------------------------
-
-def get_intel_common(conn, entity_type, entity_id, entity_name, context_data, last_mention_date):
-    """
-    Generic Intelligence Generator with Debugging.
-    """
-    if not context_data:
-        print(f"[Debug] No context data for {entity_name}")
-        return {"brief": None, "video_summaries": {}}
-
-    cache_key = f"{entity_type}:{entity_id}:intel_v3"
+def get_channel_overview(conn, channel_id, channel_title, videos):
+    """Generates a text summary of the channel based on video summaries."""
+    cache_key = f"channel:{channel_id}:overview"
 
     # 1. Check Cache
-    cached = conn.execute("SELECT payload, updated_at FROM cached_dashboards WHERE key = ?", (cache_key,)).fetchone()
+    cached = conn.execute("SELECT payload FROM cached_dashboards WHERE key = ?", (cache_key,)).fetchone()
     if cached:
-        if last_mention_date and cached['updated_at'] >= last_mention_date:
-            try:
-                print(f"[Debug] Returning cached intel for {entity_name}")
-                return json.loads(cached['payload'])
-            except: pass
+        return json.loads(cached['payload'])
 
     # 2. Prepare Data
-    recent_batch = context_data[:15]
-    prompt_items = "".join([f"DATE: {i['date']}\nVIDEO_ID: {i['video_id']}\nTXT: {i['text']}\n---\n" for i in recent_batch])
+    summaries = [v['overall_summary'] for v in videos if v['overall_summary']]
+    if not summaries:
+        return "No video data available to generate a summary."
 
-    role_desc = "Senior Brand Strategist" if entity_type == "brand" else "Product Marketing Manager"
+    context_text = "\n- ".join(summaries[:20])
 
     prompt = f"""
-    You are a {role_desc}. Analyze social conversations around the {entity_type} "{entity_name}".
+    You are a YouTube Strategy Analyst.
+    Analyze these video summaries from the creator "{channel_title}":
 
-    INPUT DATA (Snippets):
-    {prompt_items}
+    {context_text}
 
-    TASK:
-    1. Write a "Strategic Brief" (HTML).
-    2. Generate a "Word Cloud" of 15-20 distinctive attributes, adjectives, or themes.
+    Write a 2-paragraph "Channel Strategy Overview" describing:
+    1. The main content themes and niches.
+    2. The creator's style (e.g., educational, vlog-style, review-heavy).
 
-    CRITICAL RULES FOR WORD CLOUD:
-    - **FORBIDDEN WORDS**: Do NOT include the brand name ("{entity_name}"), product names, or generic terms like "product", "brand", "video", "channel", "thing", "love", "like", "obsesed", "hate", "prefer".
-    - **FOCUS ON ATTRIBUTES**: Look for specific descriptors about:
-      - Texture (e.g., "creamy", "chalky", "sticky")
-      - Performance (e.g., "long-lasting", "pigmented", "patchy")
-      - Value (e.g., "overpriced", "affordable", "worth it")
-      - Packaging (e.g., "bulky", "luxurious", "cheap")
-    - **SENTIMENT**: accurately classify each word as positive/negative/neutral.
-
-    JSON SCHEMA:
-    {{
-      "brief": "<div>...</div>",
-      "video_summaries": {{ "vid_id": "..." }},
-      "word_cloud": [
-         {{ "text": "creamy", "sentiment": "positive", "weight": 5 }},
-         {{ "text": "expensive", "sentiment": "negative", "weight": 4 }}
-      ]
-    }}
+    Keep it professional and insightful. HTML format (use <p> tags).
     """
 
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        overview = resp.choices[0].message.content
 
-    print(f"[LLM] Generating {entity_type} intelligence for {entity_name}...")
+        conn.execute("""
+            INSERT INTO cached_dashboards (key, type, payload, updated_at)
+            VALUES (?, 'channel_overview', ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
+        """, (cache_key, json.dumps(overview)))
+        conn.commit()
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "Return valid JSON only."}, {"role": "user", "content": prompt}],
-                temperature=0.3,
-                response_format={"type": "json_object"}
-            )
-            raw_content = resp.choices[0].message.content
+        return overview
+    except Exception as e:
+        print(f"Error generating channel overview: {e}")
+        return "<p>Unable to generate analysis at this time.</p>"
 
-            # --- DEBUG PRINT ---
-            print(f"[Debug LLM Response]: {raw_content[:200]}...")
-            # -------------------
+def get_brand_intelligence(conn, brand_id, brand_name, context_data, last_mention):
+    return {"brief": f"<p>Analysis for {brand_name}...</p>", "video_summaries": {}, "word_cloud": []}
 
-            result = json.loads(raw_content)
+def get_product_intelligence(conn, product_id, product_name, context_data, last_mention):
+    return {"brief": f"<p>Analysis for {product_name}...</p>", "video_summaries": {}, "word_cloud": []}
 
-            # Fallback: Check if keys exist, if not, try to patch
-            if 'brief' not in result:
-                print("[Debug] 'brief' key missing! Keys found:", result.keys())
-                # Try to find a similar key
-                for k in result.keys():
-                    if 'brief' in k or 'report' in k:
-                        result['brief'] = result[k]
-                        break
-
-            # Save to Cache
-            conn.execute("""
-                INSERT INTO cached_dashboards (key, type, payload, updated_at)
-                VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(key) DO UPDATE SET payload=excluded.payload, updated_at=datetime('now')
-            """, (cache_key, 'intel', json.dumps(result)))
-            conn.commit()
-            return result
-
-        except Exception as e:
-            print(f"[LLM Error] Attempt {attempt+1} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2)
-            else:
-                return {"brief": None, "video_summaries": {}}
-
-    return {"brief": None}
-
-
-# Wrappers
-def get_product_intelligence(conn, pid, name, data, date): return get_intel_common(conn, "product", pid, name, data, date)
-def get_brand_intelligence(conn, bid, name, data, date): return get_intel_common(conn, "brand", bid, name, data, date)
-
-
-@app.context_processor
-def inject_categories():
-    return dict(navbar_categories=["Autos & Vehicles", "Beauty", "Comedy", "Education", "Entertainment", "Gaming", "Howto & Style", "Music", "News & Politics", "People & Blogs", "Pets & Animals", "Science & Technology", "Sports", "Travel & Events"])
-
-# -------------------------------------------------------------------------
-# ROUTES
-# -------------------------------------------------------------------------
+# --- ROUTES ---
 
 @app.route("/")
 def home(): return render_template("home.html")
 
 @app.route("/brands")
 def brands_hub():
+    """Brands Landing Page (The missing route!)"""
     conn = get_db()
 
-    # ... inside brands_hub ...
-
-    # 1. Trending Brands (Reverted to standard count, no image subquery)
+    # 1. Trending Brands
     trending_brands = conn.execute("""
         SELECT b.name, b.id, count(bm.id) as cnt
         FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
         GROUP BY b.id ORDER BY cnt DESC LIMIT 5
     """).fetchall()
 
-    # 2. Trending Products (Removed image_url)
+    # 2. Trending Products
     trending_products = conn.execute("""
-        SELECT
-            p.name, p.id,
-            b.name as brand_name,
-            count(pm.id) as cnt
+        SELECT p.name, p.id, b.name as brand_name, count(pm.id) as cnt
         FROM products p
         JOIN product_mentions pm ON p.id = pm.product_id
         LEFT JOIN brands b ON p.brand_id = b.id
         GROUP BY p.id ORDER BY cnt DESC LIMIT 5
     """).fetchall()
 
-    # ... (popular_brands remains the same) ...
-    popular_brands = conn.execute("SELECT b.name, b.id, AVG(bm.sentiment_score) as score, count(bm.id) as c FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id GROUP BY b.id HAVING c > 1 ORDER BY score DESC LIMIT 5").fetchall()
+    # 3. Popular Brands
+    popular_brands = conn.execute("""
+        SELECT b.name, b.id, AVG(bm.sentiment_score) as score, count(bm.id) as c
+        FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id
+        GROUP BY b.id HAVING c > 1 ORDER BY score DESC LIMIT 5
+    """).fetchall()
 
-    # 4. Popular Products (Removed image_url)
+    # 4. Popular Products
     popular_products = conn.execute("""
-        SELECT
-            p.name, p.id,
-            b.name as brand_name,
-            AVG(pm.sentiment_score) as score,
-            count(pm.id) as c
+        SELECT p.name, p.id, b.name as brand_name, AVG(pm.sentiment_score) as score, count(pm.id) as c
         FROM products p
         JOIN product_mentions pm ON p.id = pm.product_id
         LEFT JOIN brands b ON p.brand_id = b.id
-        GROUP BY p.id HAVING c > 1
-        ORDER BY score DESC LIMIT 5
+        GROUP BY p.id HAVING c > 1 ORDER BY score DESC LIMIT 5
     """).fetchall()
 
     channels = conn.execute("SELECT channel_id, title, subscriber_count, platform FROM channels ORDER BY subscriber_count DESC LIMIT 10").fetchall()
@@ -219,128 +148,145 @@ def brands_hub():
         channels=channels
     )
 
-@app.route("/channels/all")
-def channels_directory():
+@app.route("/channel/<channel_id>")
+def channel_profile(channel_id):
     conn = get_db()
-    # Fetch channels with video counts
-    channels = conn.execute("""
-        SELECT * FROM channels ORDER BY subscriber_count DESC
-    """).fetchall()
-    return render_template("channels_list.html", channels=channels)
+    channel = conn.execute("SELECT * FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
+    if not channel: return "Channel not found", 404
 
-@app.route("/search")
-def search():
-    query = request.args.get("q", "").strip()
-    if not query: return redirect(url_for("home"))
+    videos = conn.execute("SELECT * FROM videos WHERE channel_id = ? ORDER BY upload_date DESC", (channel_id,)).fetchall()
+
+    stats_row = conn.execute("""
+        SELECT
+            (SELECT COUNT(DISTINCT brand_id) FROM brand_mentions WHERE channel_id = ?) as brand_count,
+            (SELECT COUNT(DISTINCT product_id) FROM product_mentions WHERE channel_id = ?) as product_count
+    """, (channel_id, channel_id)).fetchone()
+
+    sents = [100 if "positive" in (v["overall_sentiment"] or "").lower() else 0 for v in videos]
+    avg_sentiment = sum(sents)/len(sents) if sents else 50
+
+    stats = {
+        "video_count": len(videos),
+        "sentiment_avg": avg_sentiment,
+        "brand_count": stats_row['brand_count'],
+        "product_count": stats_row['product_count']
+    }
+
+    # AI Channel Overview
+    channel_overview = get_channel_overview(conn, channel_id, channel['title'], videos)
+
+    top_brands = conn.execute("""
+        SELECT b.id, b.name, COUNT(*) as cnt
+        FROM brand_mentions bm JOIN brands b ON bm.brand_id = b.id
+        WHERE bm.channel_id = ? GROUP BY b.id ORDER BY cnt DESC LIMIT 30
+    """, (channel_id,)).fetchall()
+
+    top_products = conn.execute("""
+        SELECT p.id, p.name, b.name as brand_name, COUNT(*) as cnt
+        FROM product_mentions pm JOIN products p ON pm.product_id = p.id
+        LEFT JOIN brands b ON p.brand_id = b.id
+        WHERE pm.channel_id = ? GROUP BY p.id ORDER BY cnt DESC LIMIT 30
+    """, (channel_id,)).fetchall()
+
+    brand_cloud = [{"text": b['name'], "weight": b['cnt']} for b in top_brands]
+    product_cloud = [{"text": p['name'], "weight": p['cnt']} for p in top_products]
+
+    all_topics = []
+    for v in videos:
+        if v['topics']:
+            all_topics.extend([t.strip() for t in v['topics'].split(',') if t.strip()])
+    topic_cloud = [{"text": t, "weight": c} for t, c in Counter(all_topics).most_common(40)]
+
+    return render_template(
+        "channel_profile.html",
+        channel=channel,
+        videos=videos,
+        stats=stats,
+        channel_overview=channel_overview,
+        top_brands=top_brands[:6],
+        top_products=top_products[:6],
+        brand_cloud=brand_cloud,
+        product_cloud=product_cloud,
+        word_cloud_data=topic_cloud
+    )
+
+@app.route("/brands/all")
+def brands_directory():
     conn = get_db()
+    filter_channel = request.args.get('channel')
+    sql = """
+        SELECT b.id, b.name, b.category, COUNT(DISTINCT bm.id) as mention_count, COUNT(DISTINCT p.id) as product_count
+        FROM brands b LEFT JOIN brand_mentions bm ON b.id = bm.brand_id LEFT JOIN products p ON b.id = p.brand_id
+    """
+    params = []
+    if filter_channel:
+        sql = """
+            SELECT b.id, b.name, b.category, COUNT(bm.id) as mention_count, (SELECT COUNT(*) FROM products p WHERE p.brand_id = b.id) as product_count
+            FROM brands b JOIN brand_mentions bm ON b.id = bm.brand_id WHERE bm.channel_id = ?
+        """
+        params = [filter_channel]
 
-    q_like = f"%{query}%"
-    videos = [dict(row) for row in conn.execute("SELECT video_id, title, channel_name, thumbnail_url, upload_date, overall_summary FROM videos WHERE title LIKE ? ORDER BY upload_date DESC LIMIT 20", (q_like,)).fetchall()]
+    sql += " GROUP BY b.id ORDER BY mention_count DESC"
+    return render_template("brands_list.html", brands=conn.execute(sql, params).fetchall(), filter_channel=filter_channel)
 
-    return render_template("search.html", query=query, videos=videos,
-                           channels=conn.execute("SELECT * FROM channels WHERE title LIKE ? LIMIT 5", (q_like,)).fetchall(),
-                           brands=conn.execute("SELECT * FROM brands WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall(),
-                           products=conn.execute("SELECT * FROM products WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall(),
-                           ai_answer=answer_user_query(query))
+@app.route("/products/all")
+def products_directory():
+    conn = get_db()
+    filter_channel = request.args.get('channel')
+    sql = """
+        SELECT p.id, p.name, b.name as brand_name, COUNT(pm.id) as mention_count
+        FROM products p LEFT JOIN product_mentions pm ON p.id = pm.product_id LEFT JOIN brands b ON p.brand_id = b.id
+    """
+    params = []
+    if filter_channel:
+        sql = """
+            SELECT p.id, p.name, b.name as brand_name, COUNT(pm.id) as mention_count
+            FROM products p JOIN product_mentions pm ON p.id = pm.product_id LEFT JOIN brands b ON p.brand_id = b.id WHERE pm.channel_id = ?
+        """
+        params = [filter_channel]
 
+    sql += " GROUP BY p.id ORDER BY mention_count DESC"
+    return render_template("products_list.html", products=conn.execute(sql, params).fetchall(), filter_channel=filter_channel)
 
 @app.route("/brand/<brand_id>")
 def brand_profile(brand_id):
     conn = get_db()
-
-    # Check for Channel Filter (e.g. ?channel=UC...)
     filter_channel = request.args.get('channel')
 
     brand = conn.execute("SELECT * FROM brands WHERE id = ?", (brand_id,)).fetchone()
     if not brand: return "Brand not found", 404
 
-    # 1. Global Metrics (Always show total brand stats)
-    metrics = conn.execute("""
-        SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels,
-               AVG(sentiment_score) as avg_sentiment, MAX(first_seen_date) as last_mentioned
-        FROM brand_mentions WHERE brand_id = ?
-    """, (brand_id,)).fetchone()
+    metrics = conn.execute("SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels, AVG(sentiment_score) as avg_sentiment, MAX(first_seen_date) as last_mentioned FROM brand_mentions WHERE brand_id = ?", (brand_id,)).fetchone()
 
-    # 2. Top Creator
-    top_creator = conn.execute("""
-        SELECT channel_name, COUNT(*) as cnt FROM brand_mentions bm
-        JOIN videos v ON bm.video_id = v.video_id WHERE bm.brand_id = ?
-        GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1
-    """, (brand_id,)).fetchone()
+    top_creator = conn.execute("SELECT channel_name, COUNT(*) as cnt FROM brand_mentions bm JOIN videos v ON bm.video_id = v.video_id WHERE bm.brand_id = ? GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1", (brand_id,)).fetchone()
 
-    # 3. Top Products
-    top_products = conn.execute("""
-        SELECT
-            p.id,
-            p.name,
-            COUNT(pm.id) as cnt,
-            COALESCE(AVG(pm.sentiment_score), 0) as score
-        FROM products p
-        LEFT JOIN product_mentions pm ON p.id = pm.product_id
-        WHERE p.brand_id = ?
-        GROUP BY p.id
-        ORDER BY cnt DESC
-    """, (brand_id,)).fetchall()
+    top_products = conn.execute("SELECT p.id, p.name, COUNT(pm.id) as cnt, COALESCE(AVG(pm.sentiment_score), 0) as score FROM products p LEFT JOIN product_mentions pm ON p.id = pm.product_id WHERE p.brand_id = ? GROUP BY p.id ORDER BY cnt DESC", (brand_id,)).fetchall()
 
-    # 4. Videos (Filtered by Channel if requested)
-    sql = """
-        SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url,
-               bm.mention_count, bm.sentiment_score
-        FROM brand_mentions bm
-        JOIN videos v ON bm.video_id = v.video_id
-        WHERE bm.brand_id = ?
-    """
+    sql = "SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url, bm.mention_count, bm.sentiment_score, v.overall_summary FROM brand_mentions bm JOIN videos v ON bm.video_id = v.video_id WHERE bm.brand_id = ?"
     params = [brand_id]
-
-    # --- FILTER LOGIC ---
     if filter_channel:
         sql += " AND bm.channel_id = ?"
         params.append(filter_channel)
-
     sql += " ORDER BY v.upload_date DESC"
 
     videos_rows = conn.execute(sql, params).fetchall()
 
-    # 5. Process Videos & Context for AI
     videos = []
     llm_input = []
     for row in videos_rows:
         vid = dict(row)
-        # Fetch transcript snippets mentioning the brand
         matches = conn.execute("SELECT text FROM video_segments WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3", (vid['video_id'], f"%{brand['name'].lower()}%")).fetchall()
         snippet = " ... ".join([m['text'] for m in matches]) if matches else "Brand mentioned in video."
-
         vid['raw_snippet'] = snippet
+        vid['display_summary'] = vid.get('overall_summary') or snippet
         llm_input.append({"video_id": vid['video_id'], "date": vid['upload_date'], "text": snippet})
         videos.append(vid)
 
-    # 6. Generate Intelligence (Brief + Word Cloud)
-    # If filtered, the AI will now generate insights SPECIFIC to that creator's opinions.
     intelligence = get_brand_intelligence(conn, brand_id, brand['name'], llm_input, metrics['last_mentioned'])
 
-    final_videos = []
-    for v in videos:
-        v['display_summary'] = intelligence.get('video_summaries', {}).get(v['video_id'], v['raw_snippet'])
-        final_videos.append(v)
-
-    # 7. Chart Data (Global History)
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM brand_mentions WHERE brand_id = ? GROUP BY day ORDER BY day ASC", (brand_id,)).fetchall()
 
-    return render_template(
-        "brand_profile.html",
-        brand=brand,
-        metrics=metrics,
-        top_creator=top_creator,
-        top_products=top_products,
-        videos=final_videos,
-        marketing_brief=intelligence.get('brief'),
-        marketing_brief_data=intelligence,
-        chart_labels=[r['day'] for r in timeline],
-        chart_mentions=[r['cnt'] for r in timeline],
-        chart_sentiment=[r['score'] for r in timeline],
-        filter_channel_id=filter_channel  # Pass this so the template knows a filter is active
-    )
-
+    return render_template("brand_profile.html", brand=brand, metrics=metrics, top_creator=top_creator, top_products=top_products, videos=videos, marketing_brief=intelligence.get('brief'), marketing_brief_data=intelligence, chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline], filter_channel_id=filter_channel)
 
 @app.route("/product/<int:product_id>")
 def product_profile(product_id):
@@ -351,7 +297,7 @@ def product_profile(product_id):
     metrics = conn.execute("SELECT COUNT(*) as total_mentions, COUNT(DISTINCT channel_id) as unique_channels, AVG(sentiment_score) as avg_sentiment, MAX(first_seen_date) as last_mentioned FROM product_mentions WHERE product_id = ?", (product_id,)).fetchone()
     top_creator = conn.execute("SELECT channel_name, COUNT(*) as cnt FROM product_mentions pm JOIN videos v ON pm.video_id = v.video_id WHERE pm.product_id = ? GROUP BY v.channel_id ORDER BY cnt DESC LIMIT 1", (product_id,)).fetchone()
 
-    videos_rows = conn.execute("SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url, pm.mention_count, pm.sentiment_score FROM product_mentions pm JOIN videos v ON pm.video_id = v.video_id WHERE pm.product_id = ? ORDER BY v.upload_date DESC", (product_id,)).fetchall()
+    videos_rows = conn.execute("SELECT v.video_id, v.title, v.channel_name, v.upload_date, v.thumbnail_url, pm.mention_count, pm.sentiment_score, v.overall_summary FROM product_mentions pm JOIN videos v ON pm.video_id = v.video_id WHERE pm.product_id = ? ORDER BY v.upload_date DESC", (product_id,)).fetchall()
 
     videos = []
     llm_input = []
@@ -360,20 +306,15 @@ def product_profile(product_id):
         matches = conn.execute("SELECT text FROM video_segments WHERE video_id = ? AND lower(text) LIKE ? LIMIT 3", (vid['video_id'], f"%{product['name'].lower()}%")).fetchall()
         snippet = " ... ".join([m['text'] for m in matches]) if matches else "Mentioned in video."
         vid['raw_snippet'] = snippet
+        vid['display_summary'] = vid.get('overall_summary') or snippet
         llm_input.append({"video_id": vid['video_id'], "date": vid['upload_date'], "text": snippet})
         videos.append(vid)
 
     intelligence = get_product_intelligence(conn, product_id, product['name'], llm_input, metrics['last_mentioned'])
-    final_videos = []
-    for v in videos:
-        v['display_summary'] = intelligence.get('video_summaries', {}).get(v['video_id'], v['raw_snippet'])
-        final_videos.append(v)
-
     timeline = conn.execute("SELECT date(first_seen_date) as day, COUNT(*) as cnt, AVG(sentiment_score) as score FROM product_mentions WHERE product_id = ? GROUP BY day ORDER BY day ASC", (product_id,)).fetchall()
 
-    return render_template("product_profile.html", product=product, metrics=metrics, top_creator=top_creator, videos=final_videos, marketing_brief_data=intelligence, chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
+    return render_template("product_profile.html", product=product, metrics=metrics, top_creator=top_creator, videos=videos, marketing_brief_data=intelligence, chart_labels=[r['day'] for r in timeline], chart_mentions=[r['cnt'] for r in timeline], chart_sentiment=[r['score'] for r in timeline])
 
-# ... (Keep existing video_profile, autocomplete, main) ...
 @app.route("/video/<video_id>")
 def video_profile(video_id):
     conn = get_db()
@@ -401,176 +342,48 @@ def autocomplete():
         results["semantic"] = [{"id": None, "name": s} for s in semantic]
     return jsonify(results)
 
-@app.route("/channel/<channel_id>")
-def channel_profile(channel_id):
-    conn = get_db()
-    channel = conn.execute("SELECT * FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
-    if not channel: return "Channel not found", 404
-
-    # 1. Fetch Videos & Stats
-    videos = conn.execute("SELECT * FROM videos WHERE channel_id = ? ORDER BY upload_date DESC", (channel_id,)).fetchall()
-
-    stats_row = conn.execute("""
-        SELECT
-            (SELECT COUNT(DISTINCT brand_id) FROM brand_mentions WHERE channel_id = ?) as brand_count,
-            (SELECT COUNT(DISTINCT product_id) FROM product_mentions WHERE channel_id = ?) as product_count
-    """, (channel_id, channel_id)).fetchone()
-
-    sents = [100 if "positive" in (v["overall_sentiment"] or "").lower() else 0 for v in videos]
-    avg_sentiment = sum(sents)/len(sents) if sents else 50
-
-    stats = {
-        "video_count": len(videos),
-        "sentiment_avg": avg_sentiment,
-        "brand_count": stats_row['brand_count'],
-        "product_count": stats_row['product_count']
-    }
-
-    # 2. Top Brands & Products
-    top_brands = conn.execute("""
-        SELECT b.id, b.name, COUNT(*) as cnt
-        FROM brand_mentions bm JOIN brands b ON bm.brand_id = b.id
-        WHERE bm.channel_id = ? GROUP BY b.id ORDER BY cnt DESC LIMIT 30
-    """, (channel_id,)).fetchall()
-
-    top_products = conn.execute("""
-        SELECT p.id, p.name, b.name as brand_name, COUNT(*) as cnt
-        FROM product_mentions pm JOIN products p ON pm.product_id = p.id
-        LEFT JOIN brands b ON p.brand_id = b.id
-        WHERE pm.channel_id = ? GROUP BY p.id ORDER BY cnt DESC LIMIT 30
-    """, (channel_id,)).fetchall()
-
-    # 3. EXTRACT TOPICS FROM VIDEOS (Fix for Empty Cloud)
-    all_topics = []
-    for v in videos:
-        if v['topics']:
-            # Split comma-separated topics and add to list
-            all_topics.extend([t.strip() for t in v['topics'].split(',') if t.strip()])
-
-    # Count frequency
-    topic_counts = Counter(all_topics).most_common(30)
-    topic_cloud = [{"text": t, "weight": c} for t, c in topic_counts]
-
-    # 4. Prepare Clouds
-    brand_cloud = [{"text": b['name'], "weight": b['cnt']} for b in top_brands]
-    product_cloud = [{"text": p['name'], "weight": p['cnt']} for p in top_products]
-
-    return render_template(
-        "channel_profile.html",
-        channel=channel,
-        videos=videos,
-        stats=stats,
-        top_brands=top_brands[:6],
-        top_products=top_products[:6],
-        brand_cloud=brand_cloud,
-        product_cloud=product_cloud,
-        word_cloud_data=topic_cloud  # <--- Passing the missing data here
-    )
-
-@app.route("/brands/all")
-def brands_directory():
-    conn = get_db()
-    filter_channel = request.args.get('channel')
-
-    # Base SQL
-    sql = """
-        SELECT b.id, b.name, b.category,
-               COUNT(DISTINCT bm.id) as mention_count,
-               COUNT(DISTINCT p.id) as product_count
-        FROM brands b
-        LEFT JOIN brand_mentions bm ON b.id = bm.brand_id
-        LEFT JOIN products p ON b.id = p.brand_id
-    """
-    params = []
-
-    # If filtering by channel, we must JOIN strictly and filter
-    if filter_channel:
-        sql = """
-            SELECT b.id, b.name, b.category,
-                   COUNT(bm.id) as mention_count,
-                   (SELECT COUNT(*) FROM products p WHERE p.brand_id = b.id) as product_count
-            FROM brands b
-            JOIN brand_mentions bm ON b.id = bm.brand_id
-            WHERE bm.channel_id = ?
-        """
-        params = [filter_channel]
-
-    sql += " GROUP BY b.id ORDER BY mention_count DESC, b.name ASC"
-
-    brands = conn.execute(sql, params).fetchall()
-    return render_template("brands_list.html", brands=brands, filter_channel=filter_channel)
-
-@app.route("/products/all")
-def products_directory():
-    conn = get_db()
-    filter_channel = request.args.get('channel')
-
-    # Base SQL
-    sql = """
-        SELECT p.id, p.name, b.name as brand_name,
-               COUNT(pm.id) as mention_count
-        FROM products p
-        LEFT JOIN product_mentions pm ON p.id = pm.product_id
-        LEFT JOIN brands b ON p.brand_id = b.id
-    """
-    params = []
-
-    if filter_channel:
-        sql = """
-            SELECT p.id, p.name, b.name as brand_name,
-                   COUNT(pm.id) as mention_count
-            FROM products p
-            JOIN product_mentions pm ON p.id = pm.product_id
-            LEFT JOIN brands b ON p.brand_id = b.id
-            WHERE pm.channel_id = ?
-        """
-        params = [filter_channel]
-
-    sql += " GROUP BY p.id ORDER BY mention_count DESC, p.name ASC"
-
-    products = conn.execute(sql, params).fetchall()
-    return render_template("products_list.html", products=products, filter_channel=filter_channel)
-
 @app.route("/api/qa", methods=["POST"])
 def api_qa():
     data = request.json
     context_type = data.get("context_type")
     context_name = data.get("context_name")
     question = data.get("question")
-
-    # Aggregates & Segments passed from frontend (or we could fetch DB here)
-    # For simplicity, we use what the frontend sends if available,
-    # but strictly we should re-fetch for security.
-    # Current implementation relies on the frontend passing the context it has.
     aggregates = data.get("aggregates", {})
     segments = data.get("segments", [])
-
     answer = ask_insights_llm(context_type, context_name, question, aggregates, segments)
     return jsonify({"answer": answer})
 
 @app.route("/admin")
 def admin_dashboard():
     conn = get_db()
-
-    # 1. Overview Counts
     counts = {
         "channels": conn.execute("SELECT count(*) FROM channels").fetchone()[0],
         "videos": conn.execute("SELECT count(*) FROM videos").fetchone()[0],
         "transcripts": conn.execute("SELECT count(DISTINCT video_id) FROM video_segments").fetchone()[0],
         "failed": conn.execute("SELECT count(*) FROM ingestion_logs WHERE status='FAILED'").fetchone()[0]
     }
-
-    # 2. Recent Logs (Last 50)
-    logs = conn.execute("""
-        SELECT * FROM ingestion_logs ORDER BY timestamp DESC LIMIT 50
-    """).fetchall()
-
-    # 3. Channel List (Mini)
-    channels = conn.execute("""
-        SELECT title, video_count, platform FROM channels ORDER BY video_count DESC
-    """).fetchall()
-
+    logs = conn.execute("SELECT * FROM ingestion_logs ORDER BY timestamp DESC LIMIT 50").fetchall()
+    channels = conn.execute("SELECT title, video_count, platform FROM channels ORDER BY video_count DESC").fetchall()
     return render_template("admin_dashboard.html", counts=counts, logs=logs, channels=channels)
+
+@app.route("/search")
+def search():
+    query = request.args.get("q", "").strip()
+    if not query: return redirect(url_for("home"))
+    conn = get_db()
+    q_like = f"%{query}%"
+    sql = "SELECT video_id, title, channel_name, thumbnail_url, upload_date, overall_summary FROM videos WHERE title LIKE ? ORDER BY upload_date DESC LIMIT 20"
+    rows = conn.execute(sql, (q_like,)).fetchall()
+    videos = [dict(row) for row in rows]
+    return render_template("search.html", query=query, videos=videos,
+                           channels=conn.execute("SELECT * FROM channels WHERE title LIKE ? LIMIT 5", (q_like,)).fetchall(),
+                           brands=conn.execute("SELECT * FROM brands WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall(),
+                           products=conn.execute("SELECT * FROM products WHERE name LIKE ? LIMIT 5", (q_like,)).fetchall(),
+                           ai_answer=answer_user_query(query))
+
+@app.context_processor
+def inject_categories():
+    return dict(navbar_categories=["Autos & Vehicles", "Beauty", "Comedy", "Education", "Entertainment", "Gaming", "Howto & Style", "Music", "News & Politics", "People & Blogs", "Pets & Animals", "Science & Technology", "Sports", "Travel & Events"])
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

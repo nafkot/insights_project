@@ -30,7 +30,7 @@ def video_already_exists(video_id):
 def upsert_product(conn, product_name, brand_name=None):
     """Safely ensures product exists, handling unique constraints."""
     c = conn.cursor()
-
+    
     # 1. Handle Brand
     brand_id = None
     if brand_name:
@@ -48,12 +48,12 @@ def upsert_product(conn, product_name, brand_name=None):
 
     # 2. Handle Product
     product_norm = product_name.strip().lower()
-    row = c.execute("SELECT id FROM products WHERE normalized_name = ? AND (brand_id = ? OR brand_id IS NULL)",
+    row = c.execute("SELECT id FROM products WHERE normalized_name = ? AND (brand_id = ? OR brand_id IS NULL)", 
                     (product_norm, brand_id)).fetchone()
     if row: return row[0]
-
+    
     try:
-        c.execute("INSERT INTO products (name, normalized_name, brand_id, brand_name) VALUES (?, ?, ?, ?)",
+        c.execute("INSERT INTO products (name, normalized_name, brand_id, brand_name) VALUES (?, ?, ?, ?)", 
                   (product_name, product_norm, brand_id, brand_name))
         return c.lastrowid
     except sqlite3.IntegrityError:
@@ -65,30 +65,26 @@ def save_video_to_db(video_meta, segments):
     c = conn.cursor()
 
     try:
-        # 1. AI Extraction (Flexible Unpacking)
-        result = extract_entities_for_video(video_meta["id"], segments)
-
-        # Handle 5 items (New) vs 4 items (Old Cache)
-        if len(result) == 5:
-            brands, products, sponsors, topics, summary = result
-        elif len(result) == 4:
-            brands, products, sponsors, topics = result
-            summary = ""
+        # 1. AI Extraction (Unpack 5 values safely)
+        extraction_result = extract_entities_for_video(video_meta["id"], segments)
+        
+        # Handle mismatch if cache has old 4-item tuples
+        if len(extraction_result) == 5:
+            brands, products, sponsors, topics, summary = extraction_result
         else:
-            # Fallback
-            brands, products, sponsors = result[:3]
-            topics = []
+            brands, products, sponsors, topics = extraction_result[:4]
             summary = ""
 
         # 2. Insert Video
         youtube_tags = video_meta.get("tags", [])
+        # Merge AI topics with YouTube tags
         final_topics = list(set(youtube_tags + topics))
         topics_str = ",".join(final_topics)
 
         c.execute("""
             INSERT INTO videos (
-                video_id, channel_id, channel_name, title, description,
-                upload_date, thumbnail_url, view_count, like_count, comment_count,
+                video_id, channel_id, channel_name, title, description, 
+                upload_date, thumbnail_url, view_count, like_count, comment_count, 
                 topics, overall_summary
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(video_id) DO UPDATE SET
@@ -103,7 +99,7 @@ def save_video_to_db(video_meta, segments):
             video_meta["title"], video_meta["description"], video_meta["upload_date"],
             video_meta["thumbnail"], video_meta["stats"].get("viewCount", 0),
             video_meta["stats"].get("likeCount", 0), video_meta["stats"].get("commentCount", 0),
-            topics_str,
+            topics_str, 
             summary
         ))
 
@@ -116,12 +112,12 @@ def save_video_to_db(video_meta, segments):
         for seg in segments:
             start = seg.get("start", 0)
             text = seg.get("text", "")
-
+            
             if "end" in seg: end = seg["end"]
             elif "duration" in seg: end = start + seg["duration"]
             else: end = start + 5.0
-
-            c.execute("INSERT INTO video_segments (video_id, start_time, end_time, text) VALUES (?, ?, ?, ?)",
+                
+            c.execute("INSERT INTO video_segments (video_id, start_time, end_time, text) VALUES (?, ?, ?, ?)", 
                       (video_meta["id"], start, end, text))
 
         # 4. Link Brands & Products
@@ -131,7 +127,7 @@ def save_video_to_db(video_meta, segments):
             try:
                 b_row = c.execute("SELECT id FROM brands WHERE normalized_name = ?", (b_norm,)).fetchone()
                 if not b_row: b_row = c.execute("SELECT id FROM brands WHERE name = ?", (b_name,)).fetchone()
-
+                
                 if b_row:
                     b_id = b_row[0]
                     c.execute("""
@@ -161,12 +157,14 @@ def save_video_to_db(video_meta, segments):
 
 def ingest_single_video(video_id: str) -> None:
     if video_already_exists(video_id):
-        print(f"[SKIP] Video {video_id} already ingested.")
-        return
+        # SKIP LOGIC COMMENTED OUT FOR TESTING UPDATES
+        # print(f"[SKIP] Video {video_id} already ingested.")
+        # return
+        pass
 
     youtube = get_authenticated_service()
     video_meta = get_video_metadata(youtube, video_id)
-
+    
     if not video_meta:
         print(f"[{video_id}] Metadata not found.")
         log_attempt(video_id, "unknown", "FAILED", "METADATA", "Video not found/Private")
