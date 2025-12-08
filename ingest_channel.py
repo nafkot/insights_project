@@ -99,9 +99,10 @@ def ingest_channel(channel_id_or_handle, max_videos=10):
         print(f"Fetching last {max_videos} videos...")
         videos = get_channel_videos(youtube, channel["id"], limit=max_videos)
         
+        total_vids = len(videos)
         # 5. Ingest Videos
-        for v in videos:
-            print(f"Processing {v['title']}...")
+        for i, v in enumerate(videos, 1):
+            print(f"[{i}/{total_vids}] Processing {v['title']}...")
             ingest_single_video(v["id"])
     else:
         print("Skipping video ingestion (max_videos=0). Channel details updated.")

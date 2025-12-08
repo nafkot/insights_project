@@ -65,8 +65,20 @@ def save_video_to_db(video_meta, segments):
     c = conn.cursor()
 
     try:
-        # 1. AI Extraction
-        brands, products, sponsors, topics = extract_entities_for_video(video_meta["id"], segments)
+        # 1. AI Extraction (Flexible Unpacking)
+        result = extract_entities_for_video(video_meta["id"], segments)
+
+        # Handle 5 items (New) vs 4 items (Old Cache)
+        if len(result) == 5:
+            brands, products, sponsors, topics, summary = result
+        elif len(result) == 4:
+            brands, products, sponsors, topics = result
+            summary = ""
+        else:
+            # Fallback
+            brands, products, sponsors = result[:3]
+            topics = []
+            summary = ""
 
         # 2. Insert Video
         youtube_tags = video_meta.get("tags", [])
@@ -76,14 +88,16 @@ def save_video_to_db(video_meta, segments):
         c.execute("""
             INSERT INTO videos (
                 video_id, channel_id, channel_name, title, description,
-                upload_date, thumbnail_url, view_count, like_count, comment_count, topics
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                upload_date, thumbnail_url, view_count, like_count, comment_count,
+                topics, overall_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(video_id) DO UPDATE SET
                 view_count=excluded.view_count,
                 like_count=excluded.like_count,
                 comment_count=excluded.comment_count,
                 title=excluded.title,
-                topics=excluded.topics
+                topics=excluded.topics,
+                overall_summary=excluded.overall_summary
         """, (
             video_meta["id"], video_meta["channel_id"], video_meta["channel_name"],
             video_meta["title"], video_meta["description"], video_meta["upload_date"],
@@ -97,20 +111,15 @@ def save_video_to_db(video_meta, segments):
             c.execute("UPDATE channels SET video_count = video_count + 1 WHERE channel_id = ?", (video_meta["channel_id"],))
         except: pass
 
-        # 3. Save Transcript (Fixed 'duration' vs 'end' logic)
+        # 3. Save Transcript
         c.execute("DELETE FROM video_segments WHERE video_id = ?", (video_meta["id"],))
-
         for seg in segments:
             start = seg.get("start", 0)
             text = seg.get("text", "")
 
-            # FIX: Calculate end_time correctly based on available keys
-            if "end" in seg:
-                end = seg["end"]
-            elif "duration" in seg:
-                end = start + seg["duration"]
-            else:
-                end = start + 5.0 # Fallback default
+            if "end" in seg: end = seg["end"]
+            elif "duration" in seg: end = start + seg["duration"]
+            else: end = start + 5.0
 
             c.execute("INSERT INTO video_segments (video_id, start_time, end_time, text) VALUES (?, ?, ?, ?)",
                       (video_meta["id"], start, end, text))
@@ -119,11 +128,9 @@ def save_video_to_db(video_meta, segments):
         for b_name in brands:
             b_norm = b_name.strip().lower()
             c.execute("INSERT OR IGNORE INTO brands (name, normalized_name) VALUES (?, ?)", (b_name, b_norm))
-            # Handle potential race condition if ignore worked but ID fetch fails due to case
             try:
                 b_row = c.execute("SELECT id FROM brands WHERE normalized_name = ?", (b_norm,)).fetchone()
-                if not b_row:
-                     b_row = c.execute("SELECT id FROM brands WHERE name = ?", (b_name,)).fetchone()
+                if not b_row: b_row = c.execute("SELECT id FROM brands WHERE name = ?", (b_name,)).fetchone()
 
                 if b_row:
                     b_id = b_row[0]
